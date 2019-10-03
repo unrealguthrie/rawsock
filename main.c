@@ -23,8 +23,8 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "./headers/bsc_ext.h"
-#include "./headers/packet.h"
+#include "./incl/bsc_ext.h"
+#include "./incl/packet.h"
 
 // ==== PROTOTYPES ====
 void create_syn_packet(struct sockaddr_in*, struct sockaddr_in*, char**, int*);
@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
 		exit (1);
 	}
 
-	int iSockHdl, iPckLen, iSent, iAckCounter = 0, one  = 1;
+	int iSockHdl, iPckLen, iSent, one  = 1;
 	struct sockaddr_in daddr, saddr;
 	char* pPck;
 	char recvbuf[DATAGRAM_LEN];
@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
 	struct tcphdr sTCPHdr;
 	char* pDataOff;
 	int iDataLen = 0;
-	struct sockaddr_in sSrcAddr, sDstAddr;
+	// struct sockaddr_in sSrcAddr, sDstAddr;
 	short sSendPacket = 0;
 
 	// Wait for the response from the server.
@@ -266,7 +266,7 @@ void create_syn_packet(struct sockaddr_in* pSrc_, struct sockaddr_in* pDst_,
 	// Calculate the checksum for the IP- and TCP-header.
 	// tcph->check = in_cksum((const char*)pseudogram, psize);
 	tcph->check = in_cksum_tcp(tcph, pSrc_, pDst_, 0);
-	iph->check = in_cksum((const char*)datagram, iph->tot_len);
+	iph->check = in_cksum((char*)datagram, iph->tot_len);
 
 	*pOutPacket_ = datagram;
 	*pOutPacketLen_ = iph->tot_len;
@@ -296,7 +296,7 @@ void create_ack_packet(struct sockaddr_in* pSrc_, struct sockaddr_in* pDst_,
 
 	// Calculate the checksum for the IP- and TCP-header.
 	tcph->check = in_cksum_tcp(tcph, pSrc_, pDst_, 0);
-	iph->check = in_cksum((const char*)datagram, iph->tot_len);
+	iph->check = in_cksum((char*)datagram, iph->tot_len);
 
 	// Set packet-content.
 	*pOutPacket_ = datagram;
@@ -333,7 +333,7 @@ void create_psh_packet(struct sockaddr_in* pSrc_, struct sockaddr_in* pDst_,
 
 	// Calculate the checksum for the IP- and TCP-header.
 	tcph->check = in_cksum_tcp(tcph, pSrc_, pDst_, iDataLen_);
-	iph->check = in_cksum((const char*)datagram, iph->tot_len);
+	iph->check = in_cksum((char*)datagram, iph->tot_len);
 
 	// Set packet-content.
 	*pOutPacket_ = datagram;
@@ -364,7 +364,7 @@ void create_fin_packet(struct sockaddr_in* pSrc_, struct sockaddr_in* pDst_,
 	tcph->fin = 1;
 	// Calculate the checksum for the IP- and TCP-header.
 	tcph->check = in_cksum_tcp(tcph, pSrc_, pDst_, 0);
-	iph->check = in_cksum((const char*)datagram, iph->tot_len);
+	iph->check = in_cksum((char*)datagram, iph->tot_len);
 
 	// Set packet-content.
 	*pOutPacket_ = datagram;

@@ -2,8 +2,8 @@
 #define _PACKET_H_
 
 // ==== DEFINES ====
-#define DATAGRAM_LEN 4096																			// The size of a single Datagra in bytes
-#define OPT_SIZE 20																					// The size of the options in the IP-header
+#define DATAGRAM_LEN 4096																			// The size of a single Datagra
+#define OPT_SIZE 20																					// The size of options in IP-header
 
 // ==== DEFINE STRUCTS ====
 /*

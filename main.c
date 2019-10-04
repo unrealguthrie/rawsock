@@ -1,15 +1,9 @@
 /**
- * FILE: rawtcp_v1.c
+ * FILE: main.c
  * SEND A MESSAGE VIA TCP/IP USING RAW SOCKETS
  * Julian Kennerknecht [Julian.kennerknecht@gmx.de]
- * 
- * The kernal automatically sends RST-packets to the other maschine,
- * and therefore interrupts the TCP-handshake. To prevtn that, you have
- * to run the following command, to stop the kernal from sending 
- * RST-apckets on it's own:
- * sudo iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP
  *
- * usage: ./rawtcp <Src-IP> <Src-Port> <Dest-IP> <Dest-Port>
+ * usage: sudo ./rawsock 192.168.2.109 $(perl -e 'print int(rand(4444) + 1111)') 192.168.2.100 4242
  */
 
 // ==== INCLUDES ====
@@ -51,7 +45,7 @@ int main(int argc, char** argv) {
 	char* pPck;
 	char recvbuf[DATAGRAM_LEN];
 	uint32_t iSeqNum, iAckNum, iNewSeqNum;
-	char request[] = "GET / HTTP/1.0\r\n\r\n";
+	char request[] = "TEST TEST.";
 
 	// Reset seed used for generating random numbers.
 	srand(time(NULL));
@@ -154,7 +148,6 @@ int main(int argc, char** argv) {
 	struct tcphdr sTCPHdr;
 	char* pDataOff;
 	int iDataLen = 0;
-	// struct sockaddr_in sSrcAddr, sDstAddr;
 	short sSendPacket = 0;
 
 	// Wait for the response from the server.
@@ -169,7 +162,8 @@ int main(int argc, char** argv) {
 		hexDump(&sIPHdr, sizeof(struct iphdr));
 		hexDump(&sTCPHdr, sizeof(struct tcphdr));
 
-		printf("Source: %d - Destination: %d\n", ntohs(sTCPHdr.source), ntohs(sTCPHdr.dest));
+		printf("(RECV): %s:%d --> %s:%d ", "", ntohs(sTCPHdr.source), "", ntohs(sTCPHdr.dest));
+
 		printf("Flags: [");
 		if(sTCPHdr.urg) printf(" urg: %x", sTCPHdr.urg);
 		if(sTCPHdr.ack) printf(" ack: %x", sTCPHdr.ack);
@@ -180,14 +174,14 @@ int main(int argc, char** argv) {
 		printf(" ]\n");
 
 		if(iDataLen > 0) {
-			printf("Data-length: %d\n", iDataLen);
 			char* pContentBuf = malloc(iDataLen + 1);
 			memcpy(pContentBuf, recvbuf + iTCPoff + 20, iDataLen);
 			//*(pContentBuf + iDataLen) = '\0';
 			hexDump(pContentBuf, iDataLen);
-			printf("\n");
+			printf("Dumped %d bytes.\n", iDataLen);
 		}
 
+		// Read ack- and seq-packet
 		read_seq_and_ack(recvbuf, &iSeqNum, &iAckNum);
 
 		iNewSeqNum = (iSeqNum + 1);
@@ -216,17 +210,58 @@ int main(int argc, char** argv) {
 	}
 
 	// Close the socket.
+	printf("Close socket...");
 	close(iSockHdl);
+	printf("done.\n");
 	return (0);
 }  // main
 
 // ==== DEFINE FUNCTIONS ====
-/** 
+/**
+ * Define a raw packet used to transfer data to a server.
  *
+ * @param {char**} pOutPacket_ - A pointer to memory to store packet
+ * @param {int*} pOutPacketLen_ - Length of the packet in bytes
+ * @param {int} iType_ - The type of packet to send
+ * @param {struct sockaddr_in*} pSrc_ - The source-IP-address
+ * @param {struct sockaddr_in*} pDst_ - The destination-IP-address
 */
-void setup_base_packet() {
+void create_raw_packet(char** pOutPacket_, int* pOutPacketLen_, int iType_,
+		struct sockaddr_in* pSrc_, struct sockaddr_in* pDst_, 
+		char* pData_, int iDataLen_) {
+	// Reserve empty space to store the datagram(memory already filled with zeros).
+	char* datagram = calloc(DATAGRAM_LEN, sizeof(char));
 
-} // setup_base_packet
+	// Required structs for IP and TCP header.
+	struct iphdr* iph = (struct iphdr*)datagram;
+	struct tcphdr* tcph = (struct tcphdr*)(datagram + sizeof(struct iphdr));
+
+	// Configure the IP-header.
+	setup_ip_hdr(iph, pSrc_, pDst_, 0);
+
+	// Configure the TCP-header.
+	setup_tcp_hdr(tcph, pSrc_->sin_port, pDst_->sin_port);
+	tcph->syn = 1;
+
+	// TCP options are only set in the SYN packet.
+	// Set the Maximum Segment Size(MMS).
+	datagram[40] = 0x02;
+	datagram[41] = 0x04;
+	int16_t mss = htons(48);
+	memcpy(datagram + 42, &mss, sizeof(int16_t));
+	// Enable SACK.
+	datagram[44] = 0x04;
+	datagram[45] = 0x02;
+
+	// Calculate the checksum for the IP- and TCP-header.
+	// tcph->check = in_cksum((const char*)pseudogram, psize);
+	tcph->check = in_cksum_tcp(tcph, pSrc_, pDst_, 0);
+	iph->check = in_cksum((char*)datagram, iph->tot_len);
+
+	*pOutPacket_ = datagram;
+	*pOutPacketLen_ = iph->tot_len;
+}  // create_raw_packet
+
 
 /**
  * Setup a valid SYN-packet, used to start the TCP-handshake with the server.
@@ -317,7 +352,7 @@ void create_psh_packet(struct sockaddr_in* pSrc_, struct sockaddr_in* pDst_,
 	struct iphdr* iph = (struct iphdr*)datagram;
 	struct tcphdr* tcph = (struct tcphdr*)(datagram + sizeof(struct iphdr));
 
-	// Set payload.
+	// Set payload according to the preset message.
 	char* payload = datagram + sizeof(struct iphdr) + sizeof(struct tcphdr) + OPT_SIZE;
 	memcpy(payload, pData_, iDataLen_);
 
@@ -341,7 +376,11 @@ void create_psh_packet(struct sockaddr_in* pSrc_, struct sockaddr_in* pDst_,
 }  // create_psh_packet
 
 /**
- *   
+ * Create a FIN-packet to close the connection to the server.
+ *
+ * @param {struct sockaddr_in*} pSrc_ -  The source-IP-address used to build connection
+ * @param {struct sockaddr_in*} pDst_ - The destination-IP-address used to build
+ * connection
 */
 void create_fin_packet(struct sockaddr_in* pSrc_, struct sockaddr_in* pDst_,
 		int32_t iSeq_, int32_t iAckSeq_, char** pOutPacket_,

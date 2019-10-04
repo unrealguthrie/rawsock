@@ -1,3 +1,8 @@
+// ==== INCLUDES ====
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "bsc_ext.h"
 
 /**
@@ -10,8 +15,8 @@
  */
 void hexDump(void *pAddr_, int iLen_) {
     int i;
-    unsigned char buff[17];
-    unsigned char *pc = (unsigned char *)pAddr_;
+    unsigned char sBuf[17];
+    unsigned char *pPtr = (unsigned char *)pAddr_;
 
     // Process every byte in the data.
     for (i = 0; i < iLen_; i++) {
@@ -19,7 +24,7 @@ void hexDump(void *pAddr_, int iLen_) {
         if ((i % DUMP_LEN) == 0) {
             // Just don't print ASCII for the zeroth line.
             if (i != 0) {
-                printf(" | %s\n", buff);
+                printf(" | %s\n", sBuf);
             }
 
             // Output the offset.
@@ -27,18 +32,18 @@ void hexDump(void *pAddr_, int iLen_) {
         }
 
         // Now the hex code for the specific character.
-        printf(" %02x", pc[i]);
+        printf(" %02x", pPtr[i]);
 
         // And store a printable ASCII character for later.
         // Replace invalid ACII characters with dots.
-        if ((pc[i] < 0x20) || (pc[i] > 0x7e)) {
-            buff[i % DUMP_LEN] = '.';
+        if ((pPtr[i] < 0x20) || (pPtr[i] > 0x7e)) {
+            sBuf[i % DUMP_LEN] = '.';
         } else {
-            buff[i % DUMP_LEN] = pc[i];
+            sBuf[i % DUMP_LEN] = pPtr[i];
         }
 
         // Add the null-byte at the end of the buffer.
-        buff[(i % DUMP_LEN) + 1] = '\0';
+        sBuf[(i % DUMP_LEN) + 1] = '\0';
     }
 
     // Pad out last line if not exactly DUMP_LEN characters.
@@ -48,5 +53,5 @@ void hexDump(void *pAddr_, int iLen_) {
     }
 
     // And print the final ASCII bit.
-    printf(" | %s\n", buff);
+    printf(" | %s\n", sBuf);
 }  // hexDump

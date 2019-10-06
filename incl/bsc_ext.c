@@ -28,7 +28,7 @@ void hexDump(void *pAddr_, int iLen_) {
             }
 
             // Output the offset.
-            printf(" %03x: ", i);
+            printf("> %03x: ", i);
         }
 
         // Now the hex code for the specific character.

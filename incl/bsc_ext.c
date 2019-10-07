@@ -10,7 +10,7 @@
  * as a hex-number and as a readable ASCII-character. Invalid characters
  * are replaced by dots.
  *
- * @param {void*} pAddr_ - The adress of the data to display
+ * @param {void*} pAddr_ - The adress of the buffer to display
  * @param {int} iLen_ - The amount of bytes to display starting from the specified address
  */
 void hexDump(void *pAddr_, int iLen_) {

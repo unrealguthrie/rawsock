@@ -172,11 +172,12 @@ int main(int argc, char** argv) {
 		iIPHdrLen = strip_ip_hdr(&sIPHdr, pRecvBuf, iRecvLen);
 		// Extract the TCP-header and get a pointer to the payload-data.
 		iTCPHdrLen = strip_tcp_hdr(&sTCPHdr, (pRecvBuf + iIPHdrLen), (iRecvLen - iTCPHdrLen));
+		// Get the length of the payload contained in the datagram.
 		iDataLen = (iRecvLen - iIPHdrLen - iIPHdrLen);
 
-		printf("[IN]  %s:%d --> %s:%d ", "192.168.2.100", ntohs(sTCPHdr.source), "192.168.2.109", ntohs(sTCPHdr.dest));
+		printf("[IN]  %s:%d -> %s:%d ", "192.168.2.100", ntohs(sTCPHdr.source), "192.168.2.109", ntohs(sTCPHdr.dest));
 
-		printf("| Flags: (");
+		printf("| (");
 		if(sTCPHdr.urg) printf(" urg: %x", sTCPHdr.urg);
 		if(sTCPHdr.ack) printf(" ack: %x", sTCPHdr.ack);
 		if(sTCPHdr.psh) printf(" psh: %x", sTCPHdr.psh);
@@ -185,6 +186,7 @@ int main(int argc, char** argv) {
 		if(sTCPHdr.fin) printf(" fin: %x", sTCPHdr.fin);
 		printf(" )\n");
 
+		// Dump payload in the terminal, if there is any.
 		if(iDataLen > 0) {
 			pContentBuf = malloc(iDataLen + 1);
 			memcpy(pContentBuf, (pRecvBuf + iIPHdrLen + iTCPHdrLen), iDataLen);
@@ -220,7 +222,7 @@ int main(int argc, char** argv) {
 				printf("send failed\n");
 			} 
 			else {
-				printf("[OUT] 192.168.2.109:4242 --> 192.168.2.100:4242 | FLAGS: ( ack: 1 )\n");
+				printf("[OUT] 192.168.2.109:4242 -> 192.168.2.100:4242 | ( ack: 1 )\n");
 				sSendPacket = 0;
 				if(sTCPHdr.fin == 1) {
 					break;

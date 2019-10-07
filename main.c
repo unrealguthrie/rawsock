@@ -3,7 +3,10 @@
  * SEND A MESSAGE VIA TCP/IP USING RAW SOCKETS
  * Julian Kennerknecht [Julian.kennerknecht@gmx.de]
  *
- * usage: sudo ./rawsock 192.168.2.109 $(perl -e 'print int(rand(4444) + 1111)') 192.168.2.100 4242
+ * usage: sudo ./rawsock <Src-IP> <Src-Port> <Dst-IP> <Dst-Port>
+ * example: sudo ./rawsock 192.168.2.109 4243 192.168.2.100 4242
+ *
+ * To generate random ports for testing: $(perl -e 'print int(rand(4444) + 1111)')
  */
 
 // ==== INCLUDES ====
@@ -20,40 +23,26 @@
 #include "./incl/bsc_ext.h"
 #include "./incl/packet.h"
 
-// Set packet-types.
-#define URG_PACKET 0
-#define ACK_PACKET 1
-#define PSH_PACKET 2
-#define RST_PACKET 3
-#define SYN_PACKET 4
-#define FIN_PACKET 5
-
 // ==== PROTOTYPES ====
-void create_raw_packet(char**, int*, int, struct sockaddr_in*, struct sockaddr_in*, 
-		char*, int);
-void create_psh_packet(struct sockaddr_in*, struct sockaddr_in*, int32_t, int32_t, 
-		char*, int, char**, int*);
-void read_seq_and_ack(const char*, uint32_t*, uint32_t*);
 int receive_packet(int, char*, size_t, struct sockaddr_in*);
 
 // ==== MAIN FUNCTION ====
 int main(int argc, char** argv) {
 	// Check if all necessary parameters have been specified by the user.
 	if (argc < 5) {
-		// printf("invalid parameters.\n");
 		printf("usage: %s <src-ip> <src-port> <dest-ip> <dest-port>\n", argv[0]);
 		exit (1);
 	}
 
 	int iSockHdl, iPckLen, iSent, one  = 1;
-	struct sockaddr_in daddr, saddr;
+	struct sockaddr_in sDstAddr, sSrcAddr;
 	char* pPck;
 	int iRecvLen;
-	char recvbuf[DATAGRAM_LEN];
+	char pRecvBuf[DATAGRAM_LEN];
 	uint32_t iSeqNum, iAckNum, iNewSeqNum, iNewAckNum;
 	char request[] = "TEST TEST.";
 	char* pDataBuf;
-	int iTCPoff = 0;
+	int iTCPoff = 0, iDataOff = 0;
 	struct iphdr sIPHdr;
 	struct tcphdr sTCPHdr;
 	char* pDataOff;
@@ -62,6 +51,9 @@ int main(int argc, char** argv) {
 
 	// Reset seed used for generating random numbers.
 	srand(time(NULL));
+
+	// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	// SETUP SCRIPT
 
 	printf("SETUP:\n");
 
@@ -77,9 +69,9 @@ int main(int argc, char** argv) {
 
 	// Configure the destination-IP-address.
 	printf(" Configure destination-ip...");
-	daddr.sin_family = AF_INET;
-	daddr.sin_port = htons(atoi(argv[4]));
-	if (inet_pton(AF_INET, argv[3], &daddr.sin_addr) != 1) {
+	sDstAddr.sin_family = AF_INET;
+	sDstAddr.sin_port = htons(atoi(argv[4]));
+	if (inet_pton(AF_INET, argv[3], &sDstAddr.sin_addr) != 1) {
 		printf("failed.\n");
 		perror("Dest-IP invalid:");
 		exit (1);
@@ -88,9 +80,9 @@ int main(int argc, char** argv) {
 
 	// Configure the source-IP-address.
 	printf(" Configure source-ip...");
-	saddr.sin_family = AF_INET;
-	saddr.sin_port = htons(atoi(argv[2]));
-	if (inet_pton(AF_INET, argv[1], &saddr.sin_addr) != 1) {
+	sSrcAddr.sin_family = AF_INET;
+	sSrcAddr.sin_port = htons(atoi(argv[2]));
+	if (inet_pton(AF_INET, argv[1], &sSrcAddr.sin_addr) != 1) {
 		printf("failed.\n");
 		perror("Src-IP invalid:");
 		exit (1);
@@ -105,6 +97,7 @@ int main(int argc, char** argv) {
 		exit (1);
 	}
 	printf("done.\n");
+
 	printf("\n");
 
 	// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
@@ -114,9 +107,8 @@ int main(int argc, char** argv) {
 
 	// Step 1: Send the SYN-packet.
 	printf(" Send SYN-pck...");
-	// create_syn_packet(&saddr, &daddr, &pPck, &iPckLen);
-	create_raw_packet(&pPck, &iPckLen, SYN_PACKET, &saddr, &daddr, NULL, 0);
-	if ((iSent = sendto(iSockHdl, pPck, iPckLen, 0, (struct sockaddr*)&daddr, 
+	create_raw_packet(&pPck, &iPckLen, SYN_PACKET, &sSrcAddr, &sDstAddr, NULL, 0);
+	if ((iSent = sendto(iSockHdl, pPck, iPckLen, 0, (struct sockaddr*)&sDstAddr, 
 					sizeof(struct sockaddr))) < 0) {
 		printf("failed.\n");
 	}
@@ -124,7 +116,7 @@ int main(int argc, char** argv) {
 
 	// Step 2: Wait for the SYN-ACK-packet.
 	printf(" Waiting for SYN-ACK-pck...");
-	iRecvLen = receive_packet(iSockHdl, recvbuf, sizeof(recvbuf), &saddr);
+	iRecvLen = receive_packet(iSockHdl, pRecvBuf, sizeof(pRecvBuf), &sSrcAddr);
 	if (iRecvLen <= 0) {
 		printf("failed.\n");
 		exit(1);
@@ -132,24 +124,25 @@ int main(int argc, char** argv) {
 	printf("ok. (%d bytes)\n", iRecvLen);
 
 	// Read sequence number to acknowledge in next packet.
-	read_seq_and_ack(recvbuf, &iSeqNum, &iAckNum);
+	read_seq_and_ack(pRecvBuf, &iSeqNum, &iAckNum);
 	iNewSeqNum = iAckNum;
 	iNewAckNum = iSeqNum + 1;
 	
 	// Step 3: Send the ACK-packet.
-	// The previous seq-number is used as ack number and vica vera.
+	// The previous seq-number is used as ack-number and vica vera.
 	printf(" Send ACK-pck...");
 	pDataBuf = malloc(8);
 	memcpy(pDataBuf, &iNewSeqNum, 4);
 	memcpy(pDataBuf + 4, &iNewAckNum, 4);
-	create_raw_packet(&pPck, &iPckLen, ACK_PACKET, &saddr, &daddr, pDataBuf, 8);
-	if ((iSent = sendto(iSockHdl, pPck, iPckLen, 0, (struct sockaddr*)&daddr, 
+	create_raw_packet(&pPck, &iPckLen, ACK_PACKET, &sSrcAddr, &sDstAddr, pDataBuf, 8);
+	if ((iSent = sendto(iSockHdl, pPck, iPckLen, 0, (struct sockaddr*)&sDstAddr, 
 					sizeof(struct sockaddr))) < 0) {
 		printf("failed.\n");
 		exit(1);
 	}
 	free(pDataBuf);
 	printf("ok. (%d bytes)\n", iSent);
+
 	printf("\n");
 
 	// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
@@ -163,11 +156,8 @@ int main(int argc, char** argv) {
 	memcpy(pDataBuf, &iNewSeqNum, 4);
 	memcpy(pDataBuf + 4, &iNewAckNum, 4);
 	memcpy(pDataBuf + 8, request, iPayloadLen);
-	create_raw_packet(&pPck, &iPckLen, PSH_PACKET, &saddr, &daddr, pDataBuf, 8 + iPayloadLen);	
-
-	//create_psh_packet(&saddr, &daddr, iNewSeqNum, iNewAckNum, request, 
-	//		sizeof(request) - 1 / sizeof(char), &pPck, &iPckLen);
-	if ((iSent = sendto(iSockHdl, pPck, iPckLen, 0, (struct sockaddr*)&daddr, 
+	create_raw_packet(&pPck, &iPckLen, PSH_PACKET, &sSrcAddr, &sDstAddr, pDataBuf, 8 + iPayloadLen);	
+	if ((iSent = sendto(iSockHdl, pPck, iPckLen, 0, (struct sockaddr*)&sDstAddr, 
 					sizeof(struct sockaddr))) < 0) {
 		printf("send failed\n");
 		return(1);
@@ -175,16 +165,13 @@ int main(int argc, char** argv) {
 	printf("done. (%d byte)\n", iSent);
 
 	// Wait for the response from the server.
-	while ((iRecvLen = receive_packet(iSockHdl, recvbuf, sizeof(recvbuf), &saddr)) > 0) {
-		//hexDump(recvbuf, received);
-		// Extract the IP-header and remove the header-length. 
-		iTCPoff = strip_ip_hdr(&sIPHdr, recvbuf, iRecvLen);
-		pDataOff = recvbuf;
-		strip_tcp_hdr(&sTCPHdr, recvbuf + iTCPoff, iRecvLen - iTCPoff, pDataOff, &iDataLen);
-
-	 	// hexDump(recvbuf, received);	
-		// hexDump(&sIPHdr, sizeof(struct iphdr));
-		//hexDump(&sTCPHdr, sizeof(struct tcphdr));
+	while ((iRecvLen = receive_packet(iSockHdl, pRecvBuf, sizeof(pRecvBuf), &sSrcAddr)) > 0) {
+		// Extract the IP-header and get the header-length. 
+		iTCPoff = strip_ip_hdr(&sIPHdr, pRecvBuf, iRecvLen);
+		// Extract the TCP-header and get a pointer to the payload-data.
+		pDataOff = pRecvBuf;
+		iDataOff = strip_tcp_hdr(&sTCPHdr, (pRecvBuf + iTCPoff), (iRecvLen - iTCPoff));
+		iDataLen = iRecvLen - iTCPoff - iDataOff;
 
 		printf("[IN]  %s:%d --> %s:%d ", "192.168.2.100", ntohs(sTCPHdr.source), "192.168.2.109", ntohs(sTCPHdr.dest));
 
@@ -197,38 +184,37 @@ int main(int argc, char** argv) {
 		if(sTCPHdr.fin) printf(" fin: %x", sTCPHdr.fin);
 		printf(" )\n");
 
-		if(iDataLen > 0 && 0) {
+		if(iDataLen > 0) {
 			char* pContentBuf = malloc(iDataLen + 1);
-			memcpy(pContentBuf, recvbuf + iTCPoff + 20, iDataLen);
-			//*(pContentBuf + iDataLen) = '\0';
+			memcpy(pContentBuf, pRecvBuf + iTCPoff + iDataOff, iDataLen);
 			hexDump(pContentBuf, iDataLen);
 			printf("Dumped %d bytes.\n", iDataLen);
 		}
 
 		// Read ack- and seq-packet
-		read_seq_and_ack(recvbuf, &iSeqNum, &iAckNum);
-
-		iNewSeqNum = (iSeqNum + 1);
+		read_seq_and_ack(pRecvBuf, &iSeqNum, &iAckNum);
+		iNewSeqNum = iAckNum;
+		iNewAckNum = iSeqNum + 1;
 
 		if(sTCPHdr.fin == 1) {
 			pDataBuf = malloc(8);
 			memcpy(pDataBuf, &iNewSeqNum, 4);
-			memcpy(pDataBuf + 4, &iAckNum, 4);
-			create_raw_packet(&pPck, &iPckLen, FIN_PACKET, &saddr, &daddr, pDataBuf, 8);
+			memcpy(pDataBuf + 4, &iNewAckNum, 4);
+			create_raw_packet(&pPck, &iPckLen, FIN_PACKET, &sSrcAddr, &sDstAddr, pDataBuf, 8);
 			free(pDataBuf);
 			sSendPacket = 1;
 		}
 		else if(sTCPHdr.psh == 1) {
 			pDataBuf = malloc(8);
 			memcpy(pDataBuf, &iNewSeqNum, 4);
-			memcpy(pDataBuf + 4, &iAckNum, 4);
-			create_raw_packet(&pPck, &iPckLen, ACK_PACKET, &saddr, &daddr, pDataBuf, 8);
+			memcpy(pDataBuf + 4, &iNewAckNum, 4);
+			create_raw_packet(&pPck, &iPckLen, ACK_PACKET, &sSrcAddr, &sDstAddr, pDataBuf, 8);
 			free(pDataBuf);
 				
 			sSendPacket = 1;
 		}
 		if(sSendPacket) {
-			if ((iSent = sendto(iSockHdl, pPck, iPckLen, 0, (struct sockaddr*)&daddr, 
+			if ((iSent = sendto(iSockHdl, pPck, iPckLen, 0, (struct sockaddr*)&sDstAddr, 
 						sizeof(struct sockaddr))) < 0) {
 				printf("send failed\n");
 			} 
@@ -242,148 +228,21 @@ int main(int argc, char** argv) {
 		}
 	}
 
+	printf("\n");
+
+	// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	// CLEAN-UP THE SCRIPT
+	
+	printf("CLEAN-UP:\n");
+
 	// Close the socket.
-	printf("Close socket...");
+	printf(" Close socket...");
 	close(iSockHdl);
 	printf("done.\n");
 	return (0);
 }  // main
 
 // ==== DEFINE FUNCTIONS ====
-/**
- * Define a raw packet used to transfer data to a server.
- *
- * @param {char**} pOutPacket_ - A pointer to memory to store packet
- * @param {int*} pOutPacketLen_ - Length of the packet in bytes
- * @param {int} iType_ - The type of packet
- * @param {struct sockaddr_in*} pSrc_ - The source-IP-address
- * @param {struct sockaddr_in*} pDst_ - The destination-IP-address
-*/
-void create_raw_packet(char** pOutPacket_, int* pOutPacketLen_, int iType_,
-		struct sockaddr_in* pSrc_, struct sockaddr_in* pDst_, 
-		char* pData_, int iDataLen_) {
-	uint32_t iSeq, iAck;
-	int iPayloadLen = 0;
-	
-	if(iDataLen_ > 8) {
-		iPayloadLen = iDataLen_ - 8;
-	}
-
-	// Reserve empty space for storing the datagram (memory already filled with zeros)
-	char* datagram = calloc(DATAGRAM_LEN, sizeof(char));
-
-	// Required structs for IP and TCP header.
-	struct iphdr* iph = (struct iphdr*)datagram;
-	struct tcphdr* tcph = (struct tcphdr*)(datagram + sizeof(struct iphdr));
-
-	// Configure the IP-header.
-	setup_ip_hdr(iph, pSrc_, pDst_, iPayloadLen);
-
-	// Configure the TCP-header.
-	setup_tcp_hdr(tcph, pSrc_->sin_port, pDst_->sin_port);
-
-	switch(iType_) {
-		case(URG_PACKET):
-			break;
-		
-		
-		case(ACK_PACKET):
-			// Set packet-flags.
-			tcph->ack = 1;
-
-			memcpy(&iSeq, pData_, 4);
-			memcpy(&iAck, pData_ + 4, 4);
-
-			// Set seq- and ack-numbers.
-			tcph->seq = htonl(iSeq);
-			tcph->ack_seq = htonl(iAck);
-			tcph->ack = htonl(iAck);
-			break;
-		
-		
-		case(PSH_PACKET):
-			// Set packet-flags.
-			tcph->psh = 1;
-			tcph->ack = 1;
-
-			// Set payload according to the preset message.
-			char* payload = datagram + sizeof(struct iphdr) + sizeof(struct tcphdr) + OPT_SIZE;
-			memcpy(payload, pData_ + 8, iDataLen_ - 8);
-
-			memcpy(&iSeq, pData_, 4);
-			memcpy(&iAck, pData_ + 4, 4);
-
-			// Set seq- and ack-numbers.
-			tcph->seq = htonl(iSeq);
-			tcph->ack_seq = htonl(iAck);
-			tcph->ack = htonl(iAck);
-
-			break;
-		
-		
-		case(RST_PACKET):
-			break;
-		
-		
-		case(SYN_PACKET):
-			// Set packet-flags.
-			tcph->syn = 1;
-
-			// TCP options are only set in the SYN packet.
-			// Set the Maximum Segment Size(MMS).
-			datagram[40] = 0x02;
-			datagram[41] = 0x04;
-			int16_t mss = htons(48);
-			memcpy(datagram + 42, &mss, sizeof(int16_t));
-			// Enable SACK.
-			datagram[44] = 0x04;
-			datagram[45] = 0x02;
-			break;
-
-
-		case(FIN_PACKET):
-			// Set the packet-flags.
-			tcph->ack = 1;
-			tcph->fin = 1;
-
-			memcpy(&iSeq, pData_, 4);
-			memcpy(&iAck, pData_ + 4, 4);
-
-			// Set seq- and ack-numbers.
-			tcph->seq = htonl(iSeq);
-			tcph->ack_seq = htonl(iAck);
-			tcph->ack = htonl(iAck);
-			break;
-	}
-
-	// Calculate the checksum for both the IP- and TCP-header.
-	tcph->check = in_cksum_tcp(tcph, pSrc_, pDst_, iPayloadLen);
-	iph->check = in_cksum((char*)datagram, iph->tot_len);
-
-	*pOutPacket_ = datagram;
-	*pOutPacketLen_ = iph->tot_len;
-}  // create_raw_packet
-
-/**
- * Extract both the sequence-number and the acknowledgement-number from 
- * the received datagram. These numbers are already converted to little-edian
- * when returned by the function.
- *
- * @param {char*} pPacket_ - A buffer containing the datagram
- * @param {int*} pSeq_ - An address to write the seq-number to
- * @param {int*} pAck_ - An address to write the ack-number to
- */
-void read_seq_and_ack(const char* pPacket_, uint32_t* pSeq_, uint32_t* pAck_) {
-	uint32_t iSeqNum, iAckNum;
-	// Read sequence number.
-	memcpy(&iSeqNum, (pPacket_ + 24), 4);
-	// Read acknowledgement number.
-	memcpy(&iAckNum, (pPacket_ + 28), 4);
-	// Convert network to host byte order.
-	*pSeq_ = ntohl(iSeqNum);
-	*pAck_ = ntohl(iAckNum);
-}  // read_seq_and_ack
-
 /**
  * Recieve a short packet using a given socket and write the data to a buffer.
  *

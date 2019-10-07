@@ -81,6 +81,26 @@ unsigned short in_cksum_tcp(struct tcphdr* pTCPHdr_, struct sockaddr_in* pSrc_,
 } // in_cksum_tcp
 
 /**
+ * Extract both the sequence-number and the acknowledgement-number from 
+ * the received datagram. These numbers are already converted to little-edian
+ * when returned by the function.
+ *
+ * @param {char*} pPacket_ - A buffer containing the datagram
+ * @param {int*} pSeq_ - An address to write the seq-number to
+ * @param {int*} pAck_ - An address to write the ack-number to
+ */
+void read_seq_and_ack(char* pPacket_, uint32_t* pSeq_, uint32_t* pAck_) {
+	uint32_t iSeqNum, iAckNum;
+	// Read sequence number.
+	memcpy(&iSeqNum, (pPacket_ + 24), 4);
+	// Read acknowledgement number.
+	memcpy(&iAckNum, (pPacket_ + 28), 4);
+	// Convert network to host byte order.
+	*pSeq_ = ntohl(iSeqNum);
+	*pAck_ = ntohl(iAckNum);
+}  // read_seq_and_ack
+
+/**
  * Setup a default IP-header, with the standart settings. This function just
  * fills up the header with the default settings. To actually configure the
  * packet right, you have to adjust further settings depending on the purpose of the
@@ -124,7 +144,7 @@ unsigned int strip_ip_hdr(struct iphdr* pIPHdr_, char* pDatagramBuf_, int pDatag
 	// Parse the buffer into the IP-header-struct.
 	memcpy(pIPHdr_, pDatagramBuf_, sizeof(struct iphdr));
 	// Return the length of the IP-header in bytes.
-	return (4 * pIPHdr_->ihl);
+	return (pIPHdr_->ihl * 4);
 } // strip_ip_hdr
 
 /**
@@ -165,18 +185,127 @@ void setup_tcp_hdr(struct tcphdr* pTCPHdr_, int iSrcPort, int iDestPort) {
  * into the header-struct and return the data contained in this datagram,
  * if there is any.
  *
+ * @returns {unsigned int} The length of the TCP-header
+ *
  * @param {struct tcphdr*} pTCPHdr_ - A pointer to the strut, used to parsethe header into
  * @param {char*} pDatagramBuf_ - The buffer to extract the header from
  * @param {int} pDatagramLen_ - The length of the datagram-buffer
- * @param {char*} pDataOff_ - A pointer to the data contained in the datagram
- * @param {int*} pDataLen_ - The length of the data contained in the datagram
 */ 
-void strip_tcp_hdr(struct tcphdr* pTCPHdr_, char* pDatagramBuf_, 
-		int pDatagramLen_, char* pDataOff_, int* pDataLen_) {
+unsigned int strip_tcp_hdr(struct tcphdr* pTCPHdr_, char* pDatagramBuf_, 
+		int pDatagramLen_) {
 	// Convert the first part of the buffer into a TCP-header.
 	memcpy(pTCPHdr_, pDatagramBuf_, sizeof(struct tcphdr));
-	// Return the data contained in the buffer, by setting 
-	// the data-offset and data-length. 
-	pDataOff_ = pDatagramBuf_ + (pTCPHdr_->doff * 4);
-	*pDataLen_ = pDatagramLen_ - (pTCPHdr_->doff * 4);
+	// Return the length of the TCP-header.
+	return (pTCPHdr_->doff * 4);
 } // strip_tcp_hdr
+
+/**
+ * Define a raw packet used to transfer data to a server.
+ *
+ * @param {char**} pOutPacket_ - A pointer to memory to store packet
+ * @param {int*} pOutPacketLen_ - Length of the packet in bytes
+ * @param {int} iType_ - The type of packet
+ * @param {struct sockaddr_in*} pSrc_ - The source-IP-address
+ * @param {struct sockaddr_in*} pDst_ - The destination-IP-address
+*/
+void create_raw_packet(char** pOutPacket_, int* pOutPacketLen_, int iType_,
+		struct sockaddr_in* pSrc_, struct sockaddr_in* pDst_, 
+		char* pData_, int iDataLen_) {
+	uint32_t iSeq, iAck;
+	int iPayloadLen = 0;
+	
+	if(iDataLen_ > 8) {
+		iPayloadLen = iDataLen_ - 8;
+	}
+
+	// Reserve empty space for storing the datagram (memory already filled with zeros)
+	char* datagram = calloc(DATAGRAM_LEN, sizeof(char));
+
+	// Required structs for IP and TCP header.
+	struct iphdr* iph = (struct iphdr*)datagram;
+	struct tcphdr* tcph = (struct tcphdr*)(datagram + sizeof(struct iphdr));
+
+	// Configure the IP-header.
+	setup_ip_hdr(iph, pSrc_, pDst_, iPayloadLen);
+
+	// Configure the TCP-header.
+	setup_tcp_hdr(tcph, pSrc_->sin_port, pDst_->sin_port);
+
+	switch(iType_) {
+		case(URG_PACKET):
+			break;
+		
+		
+		case(ACK_PACKET):
+			// Set packet-flags.
+			tcph->ack = 1;
+
+			memcpy(&iSeq, pData_, 4);
+			memcpy(&iAck, pData_ + 4, 4);
+
+			// Set seq- and ack-numbers.
+			tcph->seq = htonl(iSeq);
+			tcph->ack_seq = htonl(iAck);
+			break;
+		
+		
+		case(PSH_PACKET):
+			// Set packet-flags.
+			tcph->psh = 1;
+			tcph->ack = 1;
+
+			// Set payload according to the preset message.
+			char* payload = datagram + sizeof(struct iphdr) + sizeof(struct tcphdr) + OPT_SIZE;
+			memcpy(payload, pData_ + 8, iDataLen_ - 8);
+
+			memcpy(&iSeq, pData_, 4);
+			memcpy(&iAck, pData_ + 4, 4);
+
+			// Set seq- and ack-numbers.
+			tcph->seq = htonl(iSeq);
+			tcph->ack_seq = htonl(iAck);
+			break;
+		
+		
+		case(RST_PACKET):
+			break;
+		
+		
+		case(SYN_PACKET):
+			// Set packet-flags.
+			tcph->syn = 1;
+
+			// TCP options are only set in the SYN packet.
+			// Set the Maximum Segment Size(MMS).
+			datagram[40] = 0x02;
+			datagram[41] = 0x04;
+			int16_t mss = htons(48);
+			memcpy(datagram + 42, &mss, sizeof(int16_t));
+			// Enable SACK.
+			datagram[44] = 0x04;
+			datagram[45] = 0x02;
+			break;
+
+
+		case(FIN_PACKET):
+			// Set the packet-flags.
+			tcph->ack = 1;
+			tcph->fin = 1;
+
+			memcpy(&iSeq, pData_, 4);
+			memcpy(&iAck, pData_ + 4, 4);
+
+			// Set seq- and ack-numbers.
+			tcph->seq = htonl(iSeq);
+			tcph->ack_seq = htonl(iAck);
+			break;
+	}
+
+	// Calculate the checksum for both the IP- and TCP-header.
+	tcph->check = in_cksum_tcp(tcph, pSrc_, pDst_, iPayloadLen);
+	iph->check = in_cksum((char*)datagram, iph->tot_len);
+
+	*pOutPacket_ = datagram;
+	*pOutPacketLen_ = iph->tot_len;
+}  // create_raw_packet
+

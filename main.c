@@ -34,20 +34,22 @@ int main(int argc, char** argv) {
 		exit (1);
 	}
 
-	int iSockHdl, iPckLen, iSent, one  = 1;
-	struct sockaddr_in sDstAddr, sSrcAddr;
-	char* pPck;
+	int iSockHdl, iSent, one  = 1;
+	struct sockaddr_in sDstAddr, sSrcAddr;															// The source- and destination-addresses
+	char* pPck;																						// The buffer containing the raw datagram
+	int iPckLen;																					// The length of the datagram-buffer
+	char pRecvBuf[DATAGRAM_LEN];																	// A buffer containing the received datagram
 	int iRecvLen;
-	char pRecvBuf[DATAGRAM_LEN];
-	uint32_t iSeqNum, iAckNum, iNewSeqNum, iNewAckNum;
+	uint32_t iSeqNum, iAckNum;																		// The seq- and ack-numbers
+   	uint32_t iNewSeqNum, iNewAckNum;																// Placeholder for new seq- and ack-numbers
 	char request[] = "TEST TEST.";
 	char* pDataBuf;
-	int iTCPoff = 0, iDataOff = 0;
-	struct iphdr sIPHdr;
-	struct tcphdr sTCPHdr;
-	char* pDataOff;
-	int iDataLen = 0;
+	int iIPHdrLen = 0, iTCPHdrLen = 0, iDataLen = 0;
+	struct iphdr sIPHdr;																			// A buffer used to create the IP-header
+	struct tcphdr sTCPHdr;																			// A buffer used to create the TCP-header
 	short sSendPacket = 0;
+	int iPayloadLen;
+	char* pContentBuf;
 
 	// Reset seed used for generating random numbers.
 	srand(time(NULL));
@@ -57,7 +59,7 @@ int main(int argc, char** argv) {
 
 	printf("SETUP:\n");
 
-	// Create a raw socket for communication.
+	// Create a raw socket for communication and store socket-handler.
 	printf(" Create raw socket...");
 	iSockHdl = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
 	if (iSockHdl < 0) {
@@ -123,13 +125,12 @@ int main(int argc, char** argv) {
 	}
 	printf("ok. (%d bytes)\n", iRecvLen);
 
-	// Read sequence number to acknowledge in next packet.
+	// Update seq-number and ack-number.
 	read_seq_and_ack(pRecvBuf, &iSeqNum, &iAckNum);
 	iNewSeqNum = iAckNum;
 	iNewAckNum = iSeqNum + 1;
 	
 	// Step 3: Send the ACK-packet.
-	// The previous seq-number is used as ack-number and vica vera.
 	printf(" Send ACK-pck...");
 	pDataBuf = malloc(8);
 	memcpy(pDataBuf, &iNewSeqNum, 4);
@@ -151,10 +152,11 @@ int main(int argc, char** argv) {
 	// Send data using the established connection.	
 	printf("Send data to server...");
 
-	int iPayloadLen = ((sizeof(request) - 1) / sizeof(char));
+	iPayloadLen = ((sizeof(request) - 1) / sizeof(char));
 	pDataBuf = malloc(8 + iPayloadLen);
 	memcpy(pDataBuf, &iNewSeqNum, 4);
 	memcpy(pDataBuf + 4, &iNewAckNum, 4);
+	// Additionally to the seq- and ack-number, add the playload.
 	memcpy(pDataBuf + 8, request, iPayloadLen);
 	create_raw_packet(&pPck, &iPckLen, PSH_PACKET, &sSrcAddr, &sDstAddr, pDataBuf, 8 + iPayloadLen);	
 	if ((iSent = sendto(iSockHdl, pPck, iPckLen, 0, (struct sockaddr*)&sDstAddr, 
@@ -167,11 +169,10 @@ int main(int argc, char** argv) {
 	// Wait for the response from the server.
 	while ((iRecvLen = receive_packet(iSockHdl, pRecvBuf, sizeof(pRecvBuf), &sSrcAddr)) > 0) {
 		// Extract the IP-header and get the header-length. 
-		iTCPoff = strip_ip_hdr(&sIPHdr, pRecvBuf, iRecvLen);
+		iIPHdrLen = strip_ip_hdr(&sIPHdr, pRecvBuf, iRecvLen);
 		// Extract the TCP-header and get a pointer to the payload-data.
-		pDataOff = pRecvBuf;
-		iDataOff = strip_tcp_hdr(&sTCPHdr, (pRecvBuf + iTCPoff), (iRecvLen - iTCPoff));
-		iDataLen = iRecvLen - iTCPoff - iDataOff;
+		iTCPHdrLen = strip_tcp_hdr(&sTCPHdr, (pRecvBuf + iIPHdrLen), (iRecvLen - iTCPHdrLen));
+		iDataLen = (iRecvLen - iIPHdrLen - iIPHdrLen);
 
 		printf("[IN]  %s:%d --> %s:%d ", "192.168.2.100", ntohs(sTCPHdr.source), "192.168.2.109", ntohs(sTCPHdr.dest));
 
@@ -185,13 +186,13 @@ int main(int argc, char** argv) {
 		printf(" )\n");
 
 		if(iDataLen > 0) {
-			char* pContentBuf = malloc(iDataLen + 1);
-			memcpy(pContentBuf, pRecvBuf + iTCPoff + iDataOff, iDataLen);
+			pContentBuf = malloc(iDataLen + 1);
+			memcpy(pContentBuf, (pRecvBuf + iIPHdrLen + iTCPHdrLen), iDataLen);
 			hexDump(pContentBuf, iDataLen);
 			printf("Dumped %d bytes.\n", iDataLen);
 		}
 
-		// Read ack- and seq-packet
+		// Update ack-number and seq-number.
 		read_seq_and_ack(pRecvBuf, &iSeqNum, &iAckNum);
 		iNewSeqNum = iAckNum;
 		iNewAckNum = iSeqNum + 1;

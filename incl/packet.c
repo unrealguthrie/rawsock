@@ -12,7 +12,7 @@
 #include "packet.h"
 
 /**
- * Calculate the checksum for an IP-header and pseudoheader. The code here
+ * Calculate the checksum for an IP-header or pseudoheader. The code here
  * is recoded using https://tools.ietf.org/html/rfc1071#section-4 as
  * a direct reference.
  *
@@ -103,10 +103,30 @@ void read_seq_and_ack(char* pPacket_, uint32_t* pSeq_, uint32_t* pAck_) {
 }  // read_seq_and_ack
 
 /**
+ * Extract both the sequence-number and the acknowledgement-number from 
+ * the received datagram and then returned the updated numbers.
+ *
+ * @param {char*} pPacket_ - A buffer containing the datagram with the numbers
+ * @param {int*} pSeq_ - An address to write the updated seqeunce-number to
+ * @param {int*} pAck_ - An address to write the updated acknowledgement-number to
+ */
+void update_seq_and_ack(char* pPacket_, uint32_t* pSeq_, uint32_t* pAck_) {
+	uint32_t iSeqNum, iAckNum;
+	// Read sequence number.
+	memcpy(&iSeqNum, (pPacket_ + 24), 4);
+	// Read acknowledgement number.
+	memcpy(&iAckNum, (pPacket_ + 28), 4);
+	// Convert network to host byte order.
+	*pSeq_ = ntohl(iAckNum);
+	*pAck_ = ntohl(iSeqNum);
+	*pAck_ = *pAck_ + 1;
+}  // update_seq_and_ack
+
+/**
  * Setup a default IP-header, with the standart settings. This function just
  * fills up the header with the default settings. To actually configure the
- * packet right, you have to adjust further settings depending on the purpose of the
- * packet afterwards. By default the following settings are used: IPv4,
+ * header right, you have to adjust further settings depending on the purpose of the
+ * datagram afterwards. By default the following settings are used: IPv4,
  * Header-Length of 5 words and TCP as the transmission-protocol.
  *
  * @returns {unsigned int} The length of the IP-datagram
@@ -155,8 +175,8 @@ unsigned int strip_ip_hdr(struct iphdr* pIPHdr_, char* pDatagramBuf_, int pDatag
 /**
  * Setup a default TCP-header, with the standart settings. This function just
  * fills up the header with the default settings. To actually configure the
- * packet right, you have to set flags afterwards, depending on the purpose of
- * the packet. For example: To create a SYN-packet, you would have to activate 
+ * header right, you have to set flags afterwards, depending on the purpose of
+ * the datagram. For example: To create a SYN-packet, you would have to activate 
  * the syn-flag.
  *
  * @param {struct tcphdr*} pTCPHdr_ - A pointer to the TCP-header-structure
@@ -193,7 +213,7 @@ void setup_tcp_hdr(struct tcphdr* pTCPHdr_, int iSrcPort, int iDestPort) {
  *
  * @returns {unsigned int} The length of the TCP-header in bytes
  *
- * @param {struct tcphdr*} pTCPHdr_ - A pointer to the strut, used to parsethe header into
+ * @param {struct tcphdr*} pTCPHdr_ - A pointer to the strut, used to parse the header into
  * @param {char*} pDatagramBuf_ - The buffer to extract the header from
  * @param {int} pDatagramLen_ - The length of the datagram-buffer
 */ 
@@ -206,20 +226,20 @@ unsigned int strip_tcp_hdr(struct tcphdr* pTCPHdr_, char* pDatagramBuf_,
 } // strip_tcp_hdr
 
 /**
- * Define a raw packet used to transfer data to a server. The passed
+ * Define a raw datagram used to transfer data to a server. The passed
  * buffer has to containg at least the seq- and ack-numbers of the 
  * datagram. To pass the payload, just attach it to the end of the 
  * data-buffer and adjust the size-parameter to the new buffer-size.
  *
- * @param {char**} pOutPacket_ - A pointer to memory to store packet
- * @param {int*} pOutPacketLen_ - Length of the packet in bytes
+ * @param {char*} pOutPacket_ - A pointer to memory to store packet
+ * @param {int*} pOutPacketLen_ - Length of the datagram in bytes
  * @param {int} iType_ - The type of packet
  * @param {struct sockaddr_in*} pSrc_ - The source-IP-address
  * @param {struct sockaddr_in*} pDst_ - The destination-IP-address
  * @param {char*} pDataBuf_ - A buffer containing data to create datagram
  * @param {int} iDataLen_ - The length of the buffer
 */
-void create_raw_packet(char** pOutPacket_, int* pOutPacketLen_, int iType_,
+void create_raw_datagram(char* pOutPacket_, int* pOutPacketLen_, int iType_,
 		struct sockaddr_in* pSrc_, struct sockaddr_in* pDst_, 
 		char* pDataBuf_, int iDataLen_) {
 	uint32_t iSeq, iAck;																			// Both the seq- and ack-numbers
@@ -262,7 +282,7 @@ void create_raw_packet(char** pOutPacket_, int* pOutPacketLen_, int iType_,
 			break;
 		
 		case(PSH_PACKET):
-			// Set packet-flags.
+			// Set datagram-flags.
 			tcph->psh = 1;
 			tcph->ack = 1;
 
@@ -281,7 +301,7 @@ void create_raw_packet(char** pOutPacket_, int* pOutPacketLen_, int iType_,
 			break;
 				
 		case(SYN_PACKET):
-			// Set packet-flags.
+			// Set datagram-flags.
 			tcph->syn = 1;
 
 			// TCP options are only set in the SYN packet.
@@ -296,7 +316,7 @@ void create_raw_packet(char** pOutPacket_, int* pOutPacketLen_, int iType_,
 			break;
 
 		case(FIN_PACKET):
-			// Set the packet-flags.
+			// Set the datagram-flags.
 			tcph->ack = 1;
 			tcph->fin = 1;
 
@@ -313,7 +333,8 @@ void create_raw_packet(char** pOutPacket_, int* pOutPacketLen_, int iType_,
 	iph->check = in_cksum((char*)pDatagram, iph->tot_len);
 
 	// Return the created datagram.
-	*pOutPacket_ = pDatagram;
+	memset(pOutPacket_, 0, DATAGRAM_LEN);
+	memcpy(pOutPacket_, pDatagram, DATAGRAM_LEN);
 	*pOutPacketLen_ = iph->tot_len;
-}  // create_raw_packet
+}  // create_raw_datagram
 

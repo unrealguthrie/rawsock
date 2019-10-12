@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
 #include "bsc_ext.h"
 
@@ -17,11 +19,17 @@ void hexDump(void *pAddr_, int iLen_) {
     int i;
     unsigned char sBuf[17];
     unsigned char *pPtr = (unsigned char *)pAddr_;
+	struct winsize w;
+	int iConsCol;
+
+	// Get the width of the terminal.
+	ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+	iConsCol = (w.ws_col < 80) ? (14) : (DUMP_LEN);	
 
     // Process every byte in the data.
     for (i = 0; i < iLen_; i++) {
         // Multiple of DUMP_LEN means new line (with line offset).
-        if ((i % DUMP_LEN) == 0) {
+        if ((i % iConsCol) == 0) {
             // Just don't print ASCII for the zeroth line.
             if (i != 0) {
                 printf(" | %s\n", sBuf);
@@ -37,17 +45,17 @@ void hexDump(void *pAddr_, int iLen_) {
         // And store a printable ASCII character for later.
         // Replace invalid ACII characters with dots.
         if ((pPtr[i] < 0x20) || (pPtr[i] > 0x7e)) {
-            sBuf[i % DUMP_LEN] = '.';
+            sBuf[i % iConsCol] = '.';
         } else {
-            sBuf[i % DUMP_LEN] = pPtr[i];
+            sBuf[i % iConsCol] = pPtr[i];
         }
 
         // Add the null-byte at the end of the buffer.
-        sBuf[(i % DUMP_LEN) + 1] = '\0';
+        sBuf[(i % iConsCol) + 1] = '\0';
     }
 
     // Pad out last line if not exactly DUMP_LEN characters.
-    while ((i % DUMP_LEN) != 0) {
+    while ((i % iConsCol) != 0) {
         printf("   ");
         i++;
     }

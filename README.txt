@@ -4,7 +4,7 @@ Because the application is using raw sockets, the TCP-header and
 IP-header have to be added by the script aswell. As the kernel is 
 usually keeping track of sockets and ports, it will interrupt the 
 attempt of creating a TCP-connection, by sending RST-packets to 
-the other maschine. Therefore, the kernel has to be prevent from 
+the other maschine. Therefore, the kernel has to be prevened from 
 doing so.
 
 Prevent the kernel from sending RST-packets:

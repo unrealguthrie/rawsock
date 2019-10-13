@@ -122,6 +122,33 @@ void update_seq_and_ack(char* pPacket_, uint32_t* pSeq_, uint32_t* pAck_) {
 	*pAck_ = *pAck_ + 1;
 }  // update_seq_and_ack
 
+/*
+ * Write the necessary data to create a packet into the data-buffer. This
+ * function will write the seq- and ack-number, and if given the payload
+ * to the buffer.
+ *
+ * @param {char*} pDataBuf_ - The buffer to write the data to
+ * @param {int*} pDataLen_ - The final length of the buffer
+ * @param {int} iSeqNum_ - The sequence-number
+ * @param {int} iAckNum_ - The acknowledgement-number
+ * @param {char*} pPayload_ - The payload-buffer
+ * @param {int} iPayloadLen_ - The length of the payload-buffer
+*/
+void gather_packet_data(char* pDataBuf_, int* pDataLen_, int iSeqNum_, int iAckNum_,
+		char* pPayload_, int iPayloadLen_) {
+	// Copy the seq- and ack-numbers into the buffer.
+	memcpy(pDataBuf_, &iSeqNum_, 4);
+	memcpy(pDataBuf_ + 4, &iAckNum_, 4);
+	*pDataLen_ = 8;
+
+	if(pPayload_ != NULL) {
+		// Copy the payload into the data-buffer.
+		memcpy(pDataBuf_ + 8, pPayload_, iPayloadLen_);
+		// Adjust the buffer-length.
+		*pDataLen_ += iPayloadLen_;
+	}
+} // gather_packet_data
+
 /**
  * Setup a default IP-header, with the standart settings. This function just
  * fills up the header with the default settings. To actually configure the
@@ -338,3 +365,28 @@ void create_raw_datagram(char* pOutPacket_, int* pOutPacketLen_, int iType_,
 	*pOutPacketLen_ = iph->tot_len;
 }  // create_raw_datagram
 
+/**
+ * 
+ */
+void strip_raw_packet(char* pPckBuf_, int iPckLen_, struct iphdr* pIPHdr_,  
+		struct tcphdr* pTCPHdr_, char* pPayload_, int* iPayloadLen_) {
+
+	short iIPHdrLen;
+	int iTCPHdrLen;
+
+	// Remove the IP-header, and write it to the header-struct.
+	iIPHdrLen = strip_ip_hdr(pIPHdr_, pPckBuf_, iPckLen_);
+
+	if(pTCPHdr_ != NULL) {
+		// Remove the TCP-header, and write it to the header-struct.
+		iTCPHdrLen = strip_tcp_hdr(pTCPHdr_, (pPckBuf_ + iIPHdrLen), (iPckLen_ - iIPHdrLen));
+		
+		if(pPayload_ != NULL) {
+			// Get the length of the payload contained in the datagram.
+			*iPayloadLen_ = (iPckLen_ - iIPHdrLen - iTCPHdrLen);
+	
+			// Copy the payload into the according buffer.
+			memcpy(pPayload_, pPckBuf_ + iIPHdrLen + iTCPHdrLen, *iPayloadLen_);
+		}
+	}	
+} // strip_raw_packet

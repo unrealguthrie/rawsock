@@ -5,3 +5,5 @@
 *.swo
 # Ignore the executable
 rawsock
+
+/dev

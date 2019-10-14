@@ -150,6 +150,59 @@ void gather_packet_data(char* pDataBuf_, int* pDataLen_, int iSeqNum_, int iAckN
 } // gather_packet_data
 
 /**
+ * Setup a default TCP-header, with the standart settings. This function just
+ * fills up the header with the default settings. To actually configure the
+ * header right, you have to set flags afterwards, depending on the purpose of
+ * the datagram. For example: To create a SYN-packet, you would have to activate 
+ * the syn-flag.
+ *
+ * @param {struct tcphdr*} pTCPHdr_ - A pointer to the TCP-header-structure
+ * @param {int} iSrcPort_ - The source-port
+ * @param {int} iDestPort_ - The destination-port
+ */
+void setup_tcp_hdr(struct tcphdr* pTCPHdr_, int iSrcPort, int iDestPort) {
+	// Configure the TCP-header.
+	pTCPHdr_->source = iSrcPort;                                     								// The Source-Port
+	pTCPHdr_->dest = iDestPort;                                       								// The Destination-Port
+	pTCPHdr_->seq = htonl(rand() % 4294967295);														// The Sequence-Number 	
+	pTCPHdr_->ack_seq = htonl(0);																	// Acknowledgement-Number
+	pTCPHdr_->doff = 10;  																			// The TCP-Header-Size in words
+	// Set the TCP-Header-Flags.
+	pTCPHdr_->urg = 0;																				// Urgent-Pointer-Valid flag
+	pTCPHdr_->ack = 0;																				// Acknowledgment-Number-Valid flag
+	pTCPHdr_->psh = 0;																				// Push flag
+	pTCPHdr_->rst = 0;																				// Reset-Connection flag
+	pTCPHdr_->syn = 0;																				// Synchronize-Sequence-Numbers flag
+	pTCPHdr_->fin = 0;																				// End-Of-Data flag
+	// Fill other values.
+	pTCPHdr_->window = htons(5840);                                        							// The Window-Size
+	pTCPHdr_->check = 0;																			// The TCP-Header-Checksum (calculated later)
+	pTCPHdr_->urg_ptr = 0;																			// The pointer to the urgent data
+} // setup_tcp_hdr
+
+/**
+ * Extract the TCP-header from the datagram. Note, all previous headers, have to
+ * be removed already, as the function marks the beginning of the passed
+ * datagram as the beginning of the TCP-header. It then parses the raw bytes
+ * into the header-struct and returns the length of the TCP-header as it is.
+ * To get the start-position of the payload, just add the length of the header
+ * to the start of the TCP-header.
+ *
+ * @returns {unsigned int} The length of the TCP-header in bytes
+ *
+ * @param {struct tcphdr*} pTCPHdr_ - A pointer to the strut, used to parse the header into
+ * @param {char*} pDatagramBuf_ - The buffer to extract the header from
+ * @param {int} pDatagramLen_ - The length of the datagram-buffer
+*/ 
+unsigned int strip_tcp_hdr(struct tcphdr* pTCPHdr_, char* pDatagramBuf_, 
+		int pDatagramLen_) {
+	// Convert the first part of the buffer into a TCP-header.
+	memcpy(pTCPHdr_, pDatagramBuf_, sizeof(struct tcphdr));
+	// Return the length of the TCP-header.
+	return (pTCPHdr_->doff * 4);
+} // strip_tcp_hdr
+
+/**
  * Setup a default IP-header, with the standart settings. This function just
  * fills up the header with the default settings. To actually configure the
  * header right, you have to adjust further settings depending on the purpose of the
@@ -198,59 +251,6 @@ unsigned int strip_ip_hdr(struct iphdr* pIPHdr_, char* pDatagramBuf_, int pDatag
 	// Return the length of the IP-header in bytes.
 	return (pIPHdr_->ihl * 4);
 } // strip_ip_hdr
-
-/**
- * Setup a default TCP-header, with the standart settings. This function just
- * fills up the header with the default settings. To actually configure the
- * header right, you have to set flags afterwards, depending on the purpose of
- * the datagram. For example: To create a SYN-packet, you would have to activate 
- * the syn-flag.
- *
- * @param {struct tcphdr*} pTCPHdr_ - A pointer to the TCP-header-structure
- * @param {int} iSrcPort_ - The source-port
- * @param {int} iDestPort_ - The destination-port
- */
-void setup_tcp_hdr(struct tcphdr* pTCPHdr_, int iSrcPort, int iDestPort) {
-	// Configure the TCP-header.
-	pTCPHdr_->source = iSrcPort;                                     								// The Source-Port
-	pTCPHdr_->dest = iDestPort;                                       								// The Destination-Port
-	pTCPHdr_->seq = htonl(rand() % 4294967295);														// The Sequence-Number 	
-	pTCPHdr_->ack_seq = htonl(0);																	// Acknowledgement-Number
-	pTCPHdr_->doff = 10;  																			// The TCP-Header-Size in words
-	// Set the TCP-Header-Flags.
-	pTCPHdr_->urg = 0;																				// Urgent-Pointer-Valid flag
-	pTCPHdr_->ack = 0;																				// Acknowledgment-Number-Valid flag
-	pTCPHdr_->psh = 0;																				// Push flag
-	pTCPHdr_->rst = 0;																				// Reset-Connection flag
-	pTCPHdr_->syn = 0;																				// Synchronize-Sequence-Numbers flag
-	pTCPHdr_->fin = 0;																				// End-Of-Data flag
-	// Configure the TCP-header further.
-	pTCPHdr_->window = htons(5840);                                        							// The Window-Size
-	pTCPHdr_->check = 0;																			// The TCP-Header-Checksum (calculated later)
-	pTCPHdr_->urg_ptr = 0;																			// The pointer to the urgent data
-} // setup_tcp_hdr
-
-/**
- * Extract the TCP-header from the datagram. Note, all previous headers, have to
- * be removed already, as the function marks the beginning of the passed
- * datagram as the beginning of the TCP-header. It then parses the raw bytes
- * into the header-struct and returns the length of the TCP-header as it is.
- * To get the start-position of the payload, just add the length of the header
- * to the start of the TCP-header.
- *
- * @returns {unsigned int} The length of the TCP-header in bytes
- *
- * @param {struct tcphdr*} pTCPHdr_ - A pointer to the strut, used to parse the header into
- * @param {char*} pDatagramBuf_ - The buffer to extract the header from
- * @param {int} pDatagramLen_ - The length of the datagram-buffer
-*/ 
-unsigned int strip_tcp_hdr(struct tcphdr* pTCPHdr_, char* pDatagramBuf_, 
-		int pDatagramLen_) {
-	// Convert the first part of the buffer into a TCP-header.
-	memcpy(pTCPHdr_, pDatagramBuf_, sizeof(struct tcphdr));
-	// Return the length of the TCP-header.
-	return (pTCPHdr_->doff * 4);
-} // strip_tcp_hdr
 
 /**
  * Define a raw datagram used to transfer data to a server. The passed

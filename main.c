@@ -20,6 +20,11 @@
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
+#include <netpacket/packet.h>
+//#include <linux/if_packet.h>
+#include <net/ethernet.h> /* the L2 protocols */
+#include <sys/ioctl.h>
+#include <net/if.h>
 
 #include "./incl/bsc_ext.h"
 #include "./incl/packet.h"
@@ -32,14 +37,13 @@ int receive_packet(int, char*, size_t, struct sockaddr_in*);
 int main(int argc, char** argv) {
 	// Check if all necessary parameters have been set by the user.
 	if (argc < 5) {
-		printf("usage: %s <src-ip> <src-port> <dest-ip> <dest-port>\n", argv[0]);
+		printf("usage: %s <itf> <src-ip> <src-port> <dest-ip> <dest-port>\n", argv[0]);
 		exit (1);
 	}
 
 
 	int iSockHdl;
 	int iSent;
-    int	one  = 1;
 	short sSendPacket = 0;																			// The type of packet used to responde
 	
 	// The IP-addresses of both maschines in the connections.
@@ -89,7 +93,7 @@ int main(int argc, char** argv) {
 
 	// Create a raw socket for communication and store socket-handler.
 	printf(" Create raw socket...");
-	iSockHdl = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
+	iSockHdl = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW);
 	if (iSockHdl < 0) {
 		printf("failed.\n");
 		perror("ERROR:");
@@ -97,11 +101,48 @@ int main(int argc, char** argv) {
 	}
 	printf("done.\n");
 
+	struct ifreq ifreq_i;
+	struct ifreq ifreq_c;
+	struct ifreq ifreq_ip;	
+
+	// Get the index of the interface to send a packet.
+	printf(" Get index of interface...");
+	memset(&ifreq_i, 0, sizeof(ifreq_i));
+	strncpy(ifreq_i.ifr_name, argv[1], IFNAMSIZ - 1);
+	if((ioctl(iSockHdl, SIOCGIFINDEX, &ifreq_i)) < 0) {
+		printf("failed.\n");
+		printf("ERROR: Index ioctl reading.\n");
+		exit(1);
+	}
+	printf("done. (%s/%d)\n", argv[1], ifreq_i.ifr_ifindex);
+
+	// Get the MAC-address of the interface.
+	printf(" Get MAC-address of interface...");
+	memset(&ifreq_c, 0, sizeof(ifreq_c));
+	strncpy(ifreq_c.ifr_name, argv[1], IFNAMSIZ - 1);
+	if((ioctl(iSockHdl, SIOCGIFHWADDR, &ifreq_c)) < 0) {
+		printf("failed.\n");
+		printf("ERROR: SIOCGIFHWADDR ioctl reading.\n");
+		exit(1);	
+	}
+	printf("done.\n");
+
+	// Get the IP-address of the interface.
+	printf(" Get IP-address of interface...");
+	memset(&ifreq_ip, 0, sizeof(ifreq_ip));
+	strncpy(ifreq_ip.ifr_name, argv[1], IFNAMSIZ - 1);
+	if(ioctl(iSockHdl, SIOCGIFADDR, &ifreq_ip) < 0) {
+		printf("failed.\n");
+		printf("ERROR: In SIOCGIFADDR.\n");
+		exit(1);
+	}
+	printf("done.\n");
+
 	// Configure the destination-IP-address.
 	printf(" Configure destination-ip...");
 	sDstAddr.sin_family = AF_INET;
-	sDstAddr.sin_port = htons(atoi(argv[4]));
-	if (inet_pton(AF_INET, argv[3], &sDstAddr.sin_addr) != 1) {
+	sDstAddr.sin_port = htons(atoi(argv[5]));
+	if (inet_pton(AF_INET, argv[4], &sDstAddr.sin_addr) != 1) {
 		printf("failed.\n");
 		perror("Dest-IP invalid:");
 		exit (1);
@@ -111,19 +152,10 @@ int main(int argc, char** argv) {
 	// Configure the source-IP-address.
 	printf(" Configure source-ip...");
 	sSrcAddr.sin_family = AF_INET;
-	sSrcAddr.sin_port = htons(atoi(argv[2]));
-	if (inet_pton(AF_INET, argv[1], &sSrcAddr.sin_addr) != 1) {
+	sSrcAddr.sin_port = htons(atoi(argv[3]));
+	if (inet_pton(AF_INET, argv[2], &sSrcAddr.sin_addr) != 1) {
 		printf("failed.\n");
 		perror("Src-IP invalid:");
-		exit (1);
-	}
-	printf("done.\n");
-
-	// Tell the kernel that headers are included in the packet.
-	printf(" Configure socket...");
-	if (setsockopt(iSockHdl, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
-		printf("failed.\n");
-		perror("ERROR:");
 		exit (1);
 	}
 	printf("done.\n");
@@ -141,6 +173,7 @@ int main(int argc, char** argv) {
 	if ((iSent = sendto(iSockHdl, pPckBuf, iPckLen, 0, (struct sockaddr*)&sDstAddr, 
 					sizeof(struct sockaddr))) < 0) {
 		printf("failed.\n");
+		exit(1);
 	}
 
 	// Step 2: Wait for the SYN-ACK-packet.
@@ -181,7 +214,12 @@ int main(int argc, char** argv) {
 
 
 	// Wait for the response from the server.
-	while ((iPckLen = receive_packet(iSockHdl, pPckBuf, DATAGRAM_LEN, &sSrcAddr)) > 0) {
+	while (1) {
+		// Receive a packet from the other maschine.
+		iPckLen = receive_packet(iSockHdl, pPckBuf, DATAGRAM_LEN, &sSrcAddr);
+		if(iPckLen < 1)
+			break;
+
 		// Display packet-info in the terminal.
 		dump_packet(pPckBuf, iPckLen);
 
@@ -200,8 +238,7 @@ int main(int argc, char** argv) {
 		sSendPacket = 0;
 		if(sTCPHdr.fin == 1) {
 			sSendPacket = FIN_PACKET;
-		}
-		else if(sTCPHdr.psh == 1 || (sTCPHdr.ack == 1 && iDataLen > 0)) {
+		} else if(sTCPHdr.psh == 1 || (sTCPHdr.ack == 1 && iDataLen > 0)) {
 			sSendPacket = ACK_PACKET;
 		}
 		if(sSendPacket != 0) {
@@ -241,6 +278,12 @@ int main(int argc, char** argv) {
 
 // ==== DEFINE FUNCTIONS ====
 /**
+ * 
+*/
+void setup_eth_header() {
+} // setup_eth_header
+
+/**
  * A simple function to useful informations about a datagram,
  * into the terminal.
  *
@@ -252,14 +295,14 @@ void dump_packet(char* pPckBuf_, int iPckLen_) {
 	struct iphdr sIPHdr;
 	short iIPHdrLen;
 	struct tcphdr sTCPHdr;
-	int iTCPHdrLen;
+	// int iTCPHdrLen;
 	unsigned char* pOff;
 	uint32_t iSrcAddr, iDstAddr;
 	unsigned short sSrcPort, sDstPort;
 
 	// Unwrap both headers.
 	iIPHdrLen = strip_ip_hdr(&sIPHdr, pPckBuf_, iPckLen_);
-	iTCPHdrLen = strip_tcp_hdr(&sTCPHdr, (pPckBuf_ + iIPHdrLen), (iPckLen_ - iIPHdrLen));
+	strip_tcp_hdr(&sTCPHdr, (pPckBuf_ + iIPHdrLen), (iPckLen_ - iIPHdrLen));
 
 	// Get the IP-addresses.
 	iSrcAddr = sIPHdr.saddr;

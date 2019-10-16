@@ -21,31 +21,39 @@
 #include <time.h>
 #include <unistd.h>
 #include <netpacket/packet.h>
-//#include <linux/if_packet.h>
-#include <net/ethernet.h> /* the L2 protocols */
+#include <net/ethernet.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
 
 #include "./incl/bsc_ext.h"
 #include "./incl/packet.h"
+#include "./incl/arp_packet.h"
 
 // ==== PROTOTYPES ====
 void dump_packet(char*, int);
 int receive_packet(int, char*, size_t, struct sockaddr_in*);
+void show_interfaces();
+
 
 // ==== MAIN FUNCTION ====
 int main(int argc, char** argv) {
 	// Check if all necessary parameters have been set by the user.
 	if (argc < 5) {
 		printf("usage: %s <itf> <src-ip> <src-port> <dest-ip> <dest-port>\n", argv[0]);
+		printf("\tInterfaces: ");
+		show_interfaces();
+		printf("\n");
 		exit (1);
 	}
-
 
 	int iSockHdl;
 	int iSent;
 	short sSendPacket = 0;																			// The type of packet used to responde
 	
+	// The MAC-addresses of both maschines in the connection.
+	//struct mac_addr sSrcMacAddr;																	// The source-MAC-address
+	struct mac_addr sDstMacAddr;																	// The destination-MAC-address
+
 	// The IP-addresses of both maschines in the connections.
 	struct sockaddr_in sSrcAddr;																	// The source-IP-address
 	struct sockaddr_in sDstAddr;																	// The destination-IP-address
@@ -125,7 +133,12 @@ int main(int argc, char** argv) {
 		printf("ERROR: SIOCGIFHWADDR ioctl reading.\n");
 		exit(1);	
 	}
-	printf("done.\n");
+	printf("done. (");
+	for(char i = 0; i < 6; i++) {
+		printf("%02x", (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[i]));
+		if(i < 5) printf(":");
+	}
+	printf(")\n");
 
 	// Get the IP-address of the interface.
 	printf(" Get IP-address of interface...");
@@ -139,7 +152,7 @@ int main(int argc, char** argv) {
 	printf("done.\n");
 
 	// Configure the destination-IP-address.
-	printf(" Configure destination-ip...");
+	printf(" Configure destination-IP...");
 	sDstAddr.sin_family = AF_INET;
 	sDstAddr.sin_port = htons(atoi(argv[5]));
 	if (inet_pton(AF_INET, argv[4], &sDstAddr.sin_addr) != 1) {
@@ -150,7 +163,7 @@ int main(int argc, char** argv) {
 	printf("done.\n");
 
 	// Configure the source-IP-address.
-	printf(" Configure source-ip...");
+	printf(" Configure source-IP...");
 	sSrcAddr.sin_family = AF_INET;
 	sSrcAddr.sin_port = htons(atoi(argv[3]));
 	if (inet_pton(AF_INET, argv[2], &sSrcAddr.sin_addr) != 1) {
@@ -160,6 +173,19 @@ int main(int argc, char** argv) {
 	}
 	printf("done.\n");
 
+	printf(" Get destination-MAC-address...");
+	if(get_mac(argv[1], argv [4], &sDstMacAddr.addr) != 0) {
+		printf("failed.\n");
+		printf("Destination-MAC-address not available.\n");
+		exit(1);
+	}
+	printf("done. (");
+	for(char i = 0; i < 6; i++) {
+		printf("%02x", sDstMacAddr.addr[i]);
+		if(i < 5) printf(":");
+	}
+	printf(")\n");
+
 	printf("\n");
 	printf("COMMUNICATION:\n");
 
@@ -168,11 +194,11 @@ int main(int argc, char** argv) {
 
 	// Step 1: Send the SYN-packet.
 	memset(pPckBuf, 0, DATAGRAM_LEN);
-	create_raw_datagram(pPckBuf, &iPckLen, SYN_PACKET, &sSrcAddr, &sDstAddr, NULL, 0);
+	create_raw_datagram(pPckBuf, &iPckLen, SYN_PACKET, NULL, NULL, &sSrcAddr, &sDstAddr, NULL, 0);
 	dump_packet(pPckBuf, iPckLen);
 	if ((iSent = sendto(iSockHdl, pPckBuf, iPckLen, 0, (struct sockaddr*)&sDstAddr, 
 					sizeof(struct sockaddr))) < 0) {
-		printf("failed.\n");
+		printf("Sending packet failed.\n");
 		exit(1);
 	}
 
@@ -180,7 +206,7 @@ int main(int argc, char** argv) {
 	iPckLen = receive_packet(iSockHdl, pPckBuf, DATAGRAM_LEN, &sSrcAddr);
 	dump_packet(pPckBuf, iPckLen);
 	if (iPckLen <= 0) {
-		printf("failed.\n");
+		printf("Sending packet failed.\n");
 		exit(1);
 	}
 
@@ -190,11 +216,11 @@ int main(int argc, char** argv) {
 	// Step 3: Send the ACK-packet, with updated numbers.
 	memset(pPckBuf, 0, DATAGRAM_LEN);
 	gather_packet_data(pDataBuf, &iDataLen, iSeqNum, iAckNum, NULL, 0);
-	create_raw_datagram(pPckBuf, &iPckLen, ACK_PACKET, &sSrcAddr, &sDstAddr, pDataBuf, iDataLen);
+	create_raw_datagram(pPckBuf, &iPckLen, ACK_PACKET, NULL, NULL, &sSrcAddr, &sDstAddr, pDataBuf, iDataLen);
 	dump_packet(pPckBuf, iPckLen);
 	if ((iSent = sendto(iSockHdl, pPckBuf, iPckLen, 0, (struct sockaddr*)&sDstAddr, 
 					sizeof(struct sockaddr))) < 0) {
-		printf("failed.\n");
+		printf("Sending packet failed.\n");
 		exit(1);
 	}
 	free(pDataBuf);
@@ -204,7 +230,7 @@ int main(int argc, char** argv) {
 
 	// Send data using the established connection.	
 	gather_packet_data(pDataBuf, &iDataLen, iSeqNum, iAckNum, pPayload, iPayloadLen);
-	create_raw_datagram(pPckBuf, &iPckLen, PSH_PACKET, &sSrcAddr, &sDstAddr, pDataBuf, iDataLen);	
+	create_raw_datagram(pPckBuf, &iPckLen, PSH_PACKET, NULL, NULL, &sSrcAddr, &sDstAddr, pDataBuf, iDataLen);	
 	dump_packet(pPckBuf, iPckLen);
 	if ((iSent = sendto(iSockHdl, pPckBuf, iPckLen, 0, (struct sockaddr*)&sDstAddr, 
 					sizeof(struct sockaddr))) < 0) {
@@ -244,7 +270,7 @@ int main(int argc, char** argv) {
 		if(sSendPacket != 0) {
 			// Create the response-packet.
 			gather_packet_data(pDataBuf, &iDataLen, iSeqNum, iAckNum, NULL, 0);
-			create_raw_datagram(pPckBuf, &iPckLen, sSendPacket, &sSrcAddr, &sDstAddr, pDataBuf, 8);
+			create_raw_datagram(pPckBuf, &iPckLen, sSendPacket, NULL, NULL, &sSrcAddr, &sDstAddr, pDataBuf, 8);
 			dump_packet(pPckBuf, iPckLen);
 			free(pDataBuf);
 
@@ -376,3 +402,35 @@ int receive_packet(int iSockHdl_, char* pBuf_, size_t sBufLen_, struct sockaddr_
 	// Return the amount of recieved bytes.
 	return (iRecvLen);
 } // receive_packet
+
+/**
+ * Show all available interfaces to the user.
+*/
+void show_interfaces() {
+	/*
+	struct ifaddrs *addrs,*tmp;
+	getifaddrs(&addrs);
+	tmp = addrs;
+
+	while (tmp) {
+    	if (tmp->ifa_addr && tmp->ifa_addr->sa_family == AF_PACKET)
+        	printf("%s\n", tmp->ifa_name);
+
+    		tmp = tmp->ifa_next;
+	}
+	freeifaddrs(addrs);	*/
+	struct if_nameindex *if_nidxs, *intf;
+
+    if_nidxs = if_nameindex();
+    if ( if_nidxs != NULL )
+    {
+        for (intf = if_nidxs; intf->if_index != 0 || intf->if_name != NULL; intf++)
+        {
+            printf("%s ", intf->if_name);
+        }
+
+        if_freenameindex(if_nidxs);
+    }
+
+    return ;
+} // show-interfaces

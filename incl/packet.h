@@ -26,7 +26,14 @@ struct pseudohdr {
 	u_int16_t tcp_length;
 };  // pseudohdr
 
-// === Define PROTOTYPES ===
+/**
+ * Representation of a MAC-address using a struct.
+*/
+struct mac_addr {
+   unsigned char addr[6];
+}; // mac_addr
+
+// === DEFINE PROTOTYPES ===
 // Functions needed for building packets.
 unsigned short in_cksum(char*, unsigned);
 unsigned short in_cksum_tcp(struct tcphdr*, struct sockaddr_in*, struct sockaddr_in*, int);
@@ -41,7 +48,7 @@ unsigned int setup_ip_hdr(struct iphdr*, struct sockaddr_in*, struct sockaddr_in
 unsigned int strip_ip_hdr(struct iphdr*, char*, int);
 
 // Build and deconstruct packets.
-void create_raw_datagram(char*, int*, int, struct sockaddr_in*, struct sockaddr_in*, char*, int);
+void create_raw_datagram(char*, int*, int, struct mac_addr*, struct mac_addr*, struct sockaddr_in*, struct sockaddr_in*, char*, int);
 void strip_raw_packet(char*, int, struct iphdr*, struct tcphdr*, char*, int*);
 
 #endif

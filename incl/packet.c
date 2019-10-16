@@ -261,12 +261,15 @@ unsigned int strip_ip_hdr(struct iphdr* pIPHdr_, char* pDatagramBuf_, int pDatag
  * @param {char*} pOutPacket_ - A pointer to memory to store packet
  * @param {int*} pOutPacketLen_ - Length of the datagram in bytes
  * @param {int} iType_ - The type of packet
+ * @param {struct mac_addr*} pSrcMac_ - Source-MAC-address of packet
+ * @param {struct mac_addr*} pDstMac_ - Destination-MAC-address of packet
  * @param {struct sockaddr_in*} pSrc_ - The source-IP-address
  * @param {struct sockaddr_in*} pDst_ - The destination-IP-address
  * @param {char*} pDataBuf_ - A buffer containing data to create datagram
  * @param {int} iDataLen_ - The length of the buffer
 */
 void create_raw_datagram(char* pOutPacket_, int* pOutPacketLen_, int iType_,
+		struct mac_addr* pSrcMac_, struct mac_addr* pDstMac_,
 		struct sockaddr_in* pSrc_, struct sockaddr_in* pDst_, 
 		char* pDataBuf_, int iDataLen_) {
 	uint32_t iSeq, iAck;																			// Both the seq- and ack-numbers

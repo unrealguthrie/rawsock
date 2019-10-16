@@ -51,7 +51,7 @@ int main(int argc, char** argv) {
 	short sSendPacket = 0;																			// The type of packet used to responde
 	
 	// The MAC-addresses of both maschines in the connection.
-	//struct mac_addr sSrcMacAddr;																	// The source-MAC-address
+	struct mac_addr sSrcMacAddr;																	// The source-MAC-address
 	struct mac_addr sDstMacAddr;																	// The destination-MAC-address
 
 	// The IP-addresses of both maschines in the connections.
@@ -135,6 +135,7 @@ int main(int argc, char** argv) {
 	}
 	printf("done. (");
 	for(char i = 0; i < 6; i++) {
+		sSrcMacAddr.addr[i] = ifreq_c.ifr_hwaddr.sa_data[i];
 		printf("%02x", (unsigned char)(ifreq_c.ifr_hwaddr.sa_data[i]));
 		if(i < 5) printf(":");
 	}
@@ -189,24 +190,37 @@ int main(int argc, char** argv) {
 	printf("\n");
 	printf("COMMUNICATION:\n");
 
+	struct sockaddr_ll sadr_ll;
+	sadr_ll.sll_ifindex = ifreq_i.ifr_ifindex; // index of interface
+	sadr_ll.sll_halen = ETH_ALEN; // length of destination mac address
+	sadr_ll.sll_addr[0] = sDstMacAddr.addr[0];
+	sadr_ll.sll_addr[1] = sDstMacAddr.addr[1];
+	sadr_ll.sll_addr[2] = sDstMacAddr.addr[2];
+	sadr_ll.sll_addr[3] = sDstMacAddr.addr[3];
+	sadr_ll.sll_addr[4] = sDstMacAddr.addr[4];
+	sadr_ll.sll_addr[5] = sDstMacAddr.addr[5];
+
 	// =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 	// THE TCP-HANDSHAKE
 
 	// Step 1: Send the SYN-packet.
+	printf("Step 1:\n");
 	memset(pPckBuf, 0, DATAGRAM_LEN);
-	create_raw_datagram(pPckBuf, &iPckLen, SYN_PACKET, NULL, NULL, &sSrcAddr, &sDstAddr, NULL, 0);
+	create_raw_datagram(pPckBuf, &iPckLen, SYN_PACKET, &sSrcMacAddr, &sDstMacAddr, &sSrcAddr, &sDstAddr, NULL, 0);
 	dump_packet(pPckBuf, iPckLen);
-	if ((iSent = sendto(iSockHdl, pPckBuf, iPckLen, 0, (struct sockaddr*)&sDstAddr, 
-					sizeof(struct sockaddr))) < 0) {
+	if ((iSent = sendto(iSockHdl, pPckBuf, iPckLen, 0, (const struct sockaddr*)&sadr_ll, sizeof(struct sockaddr_ll))) < 0) {
 		printf("Sending packet failed.\n");
 		exit(1);
 	}
 
+
+
 	// Step 2: Wait for the SYN-ACK-packet.
+	printf("Step 2:\n");
 	iPckLen = receive_packet(iSockHdl, pPckBuf, DATAGRAM_LEN, &sSrcAddr);
 	dump_packet(pPckBuf, iPckLen);
 	if (iPckLen <= 0) {
-		printf("Sending packet failed.\n");
+		printf("Receiving packet failed.\n");
 		exit(1);
 	}
 
@@ -303,12 +317,6 @@ int main(int argc, char** argv) {
 }  // main
 
 // ==== DEFINE FUNCTIONS ====
-/**
- * 
-*/
-void setup_eth_header() {
-} // setup_eth_header
-
 /**
  * A simple function to useful informations about a datagram,
  * into the terminal.

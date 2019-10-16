@@ -46,9 +46,11 @@ void setup_tcp_hdr(struct tcphdr*, int, int);
 unsigned int strip_tcp_hdr(struct tcphdr*, char*, int);
 unsigned int setup_ip_hdr(struct iphdr*, struct sockaddr_in*, struct sockaddr_in*, int);
 unsigned int strip_ip_hdr(struct iphdr*, char*, int);
+void setup_eth_hdr(struct ethhdr*, struct mac_addr*, struct mac_addr*);
 
 // Build and deconstruct packets.
-void create_raw_datagram(char*, int*, int, struct mac_addr*, struct mac_addr*, struct sockaddr_in*, struct sockaddr_in*, char*, int);
+void create_raw_datagram(char*, int*, int, struct mac_addr*, struct mac_addr*, 
+		struct sockaddr_in*, struct sockaddr_in*, char*, int);
 void strip_raw_packet(char*, int, struct iphdr*, struct tcphdr*, char*, int*);
 
 #endif

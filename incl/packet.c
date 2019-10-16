@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
+#include <linux/if_ether.h>
 
 #include "packet.h"
 
@@ -253,6 +254,31 @@ unsigned int strip_ip_hdr(struct iphdr* pIPHdr_, char* pDatagramBuf_, int pDatag
 } // strip_ip_hdr
 
 /**
+ * Setup the ethernet-header and fill the necessary fields, with the given 
+ * information.
+ *
+ * 
+*/
+void setup_eth_hdr(struct ethhdr* pEthHdr_, struct mac_addr* pSrcMac_, struct mac_addr* pDstMac_) {
+	pEthHdr_->h_source[0] = pSrcMac_->addr[0];
+	pEthHdr_->h_source[1] = pSrcMac_->addr[1];
+	pEthHdr_->h_source[2] = pSrcMac_->addr[2];
+	pEthHdr_->h_source[3] = pSrcMac_->addr[3];
+	pEthHdr_->h_source[4] = pSrcMac_->addr[4];
+	pEthHdr_->h_source[5] = pSrcMac_->addr[5];
+	
+	pEthHdr_->h_dest[0] = pDstMac_->addr[0];
+	pEthHdr_->h_dest[1] = pDstMac_->addr[1];
+	pEthHdr_->h_dest[2] = pDstMac_->addr[2];
+	pEthHdr_->h_dest[3] = pDstMac_->addr[3];
+	pEthHdr_->h_dest[4] = pDstMac_->addr[4];
+	pEthHdr_->h_dest[5] = pDstMac_->addr[5];
+
+	// Set IP as the next header.
+	pEthHdr_->h_proto = htons(ETH_P_IP);
+} // setup_eth_hdr
+
+/**
  * Define a raw datagram used to transfer data to a server. The passed
  * buffer has to containg at least the seq- and ack-numbers of the 
  * datagram. To pass the payload, just attach it to the end of the 
@@ -286,8 +312,12 @@ void create_raw_datagram(char* pOutPacket_, int* pOutPacketLen_, int iType_,
 	char* pDatagram = calloc(DATAGRAM_LEN, sizeof(char));
 
 	// Required structs for the IP- and TCP-header.
-	struct iphdr* iph = (struct iphdr*)pDatagram;
-	struct tcphdr* tcph = (struct tcphdr*)(pDatagram + sizeof(struct iphdr));
+	struct ethhdr* ethh = (struct ethhdr*)pDatagram;
+	struct iphdr* iph = (struct iphdr*)pDatagram + sizeof(struct ethhdr);
+	struct tcphdr* tcph = (struct tcphdr*)(pDatagram + sizeof(struct ethhdr) + sizeof(struct iphdr));
+
+	// Configure the Ethernet-header.
+	setup_eth_hdr(ethh, pSrcMac_, pDstMac_);	
 
 	// Configure the IP-header.
 	setup_ip_hdr(iph, pSrc_, pDst_, iPayloadLen);

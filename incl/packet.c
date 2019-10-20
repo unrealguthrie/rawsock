@@ -361,8 +361,6 @@ void create_raw_datagram(char* pOutPacket_, int* pOutPacketLen_, int iType_,
 			break;
 	}
 
-	printf("BUILD-LEN: %d\n", iph->tot_len);
-
 	// Calculate the checksum for both the IP- and TCP-header.
 	tcph->check = in_cksum_tcp(tcph, pSrc_, pDst_, iPayloadLen);
 	iph->check = in_cksum((char*)pDatagram, iph->tot_len);

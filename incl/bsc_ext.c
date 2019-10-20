@@ -2,8 +2,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
+#include <arpa/inet.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
+#include <linux/if_ether.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
 
 #include "bsc_ext.h"
 
@@ -63,3 +70,70 @@ void hexDump(void *pAddr_, int iLen_) {
     // And print the final ASCII bit.
     printf(" | %s\n", sBuf);
 }  // hexDump
+
+/**
+ * A simple function to useful informations about a datagram,
+ * into the terminal.
+ *
+ * @param {char*} pPckBuf_ - The raw datagram
+ * @param {int} iPckLen_ - The length of the packet-buffer in bytes
+*/
+void dump_packet(char* pPckBuf_, int iPckLen_) {
+	char cPos = 0;
+	struct iphdr sIPHdr;
+	short iIPHdrLen;
+	struct tcphdr sTCPHdr;
+	// int iTCPHdrLen;
+	unsigned char* pOff;
+	uint32_t iSrcAddr, iDstAddr;
+	unsigned short sSrcPort, sDstPort;
+
+	// Unwrap both headers.
+	iIPHdrLen = strip_ip_hdr(&sIPHdr, (pPckBuf_), (iPckLen_));
+	strip_tcp_hdr(&sTCPHdr, (pPckBuf_ + iIPHdrLen), (iPckLen_ - iIPHdrLen));
+
+	// Get the IP-addresses.
+	iSrcAddr = sIPHdr.saddr;
+	iDstAddr = sIPHdr.daddr;
+
+	printf("[*]");
+
+	// Ouput the source-IP-address.
+	pOff = (unsigned char*)&iSrcAddr;
+	for(cPos = 0; cPos < 4; cPos++) {
+		printf("%d", *((unsigned char*)pOff + cPos));
+		if(cPos < 3) {
+			printf(".");
+		}
+	}
+	// Print the source-port.
+	sSrcPort = sTCPHdr.source;	
+	printf(":%d", ntohs(sSrcPort));
+
+	printf(" -> ");
+
+	// Output the destination-IP-address.
+	pOff = (unsigned char*)&iDstAddr;
+	for(cPos = 0; cPos < 4; cPos++) {
+		printf("%d", *((unsigned char*)pOff + cPos));
+		if(cPos < 3) {
+			printf(".");
+		}
+	}
+
+	// Print the destination-port.
+	sDstPort = sTCPHdr.dest;	
+	printf(":%d", ntohs(sDstPort));
+
+	// Display the packet-flags.
+	printf(" | (");
+	if(sTCPHdr.urg) printf(" urg: %x", sTCPHdr.urg);
+	if(sTCPHdr.ack) printf(" ack: %x", sTCPHdr.ack);
+	if(sTCPHdr.psh) printf(" psh: %x", sTCPHdr.psh);
+	if(sTCPHdr.rst) printf(" rst: %x", sTCPHdr.rst);
+	if(sTCPHdr.syn) printf(" syn: %x", sTCPHdr.syn);
+	if(sTCPHdr.fin) printf(" fin: %x", sTCPHdr.fin);
+	printf(" )");
+
+	printf("\n");
+} // dump_packet

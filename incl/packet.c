@@ -223,6 +223,7 @@ unsigned int setup_ip_hdr(struct iphdr* pIPHdr_, struct sockaddr_in* pSrc_,
 	pIPHdr_->ihl = 0x5;                                                     						// Internet-Header-Length
 	pIPHdr_->tos = 0;                                                       						// Type-Of-Service
 	pIPHdr_->tot_len = sizeof(struct iphdr) + OPT_SIZE + sizeof(struct tcphdr) + iDataLen_;    		// Total-Length of the IP-datagram
+	printf("  Length of IP-Hdr: %d\n", pIPHdr_->tot_len);
 	pIPHdr_->id = htonl(rand() % 65535);                                    						// Identification of datagram (set random)
 	pIPHdr_->frag_off = 0;                                                  						// Fragment-Offset
 	pIPHdr_->ttl = 0xff;                                                      						// Time-To-Live
@@ -254,31 +255,6 @@ unsigned int strip_ip_hdr(struct iphdr* pIPHdr_, char* pDatagramBuf_, int pDatag
 } // strip_ip_hdr
 
 /**
- * Setup the ethernet-header and fill the necessary fields, with the given 
- * information.
- *
- * 
-*/
-void setup_eth_hdr(struct ethhdr* pEthHdr_, struct mac_addr* pSrcMac_, struct mac_addr* pDstMac_) {
-	pEthHdr_->h_source[0] = pSrcMac_->addr[0];
-	pEthHdr_->h_source[1] = pSrcMac_->addr[1];
-	pEthHdr_->h_source[2] = pSrcMac_->addr[2];
-	pEthHdr_->h_source[3] = pSrcMac_->addr[3];
-	pEthHdr_->h_source[4] = pSrcMac_->addr[4];
-	pEthHdr_->h_source[5] = pSrcMac_->addr[5];
-	
-	pEthHdr_->h_dest[0] = pDstMac_->addr[0];
-	pEthHdr_->h_dest[1] = pDstMac_->addr[1];
-	pEthHdr_->h_dest[2] = pDstMac_->addr[2];
-	pEthHdr_->h_dest[3] = pDstMac_->addr[3];
-	pEthHdr_->h_dest[4] = pDstMac_->addr[4];
-	pEthHdr_->h_dest[5] = pDstMac_->addr[5];
-
-	// Set IP as the next header.
-	pEthHdr_->h_proto = htons(ETH_P_IP);
-} // setup_eth_hdr
-
-/**
  * Define a raw datagram used to transfer data to a server. The passed
  * buffer has to containg at least the seq- and ack-numbers of the 
  * datagram. To pass the payload, just attach it to the end of the 
@@ -295,7 +271,6 @@ void setup_eth_hdr(struct ethhdr* pEthHdr_, struct mac_addr* pSrcMac_, struct ma
  * @param {int} iDataLen_ - The length of the buffer
 */
 void create_raw_datagram(char* pOutPacket_, int* pOutPacketLen_, int iType_,
-		struct mac_addr* pSrcMac_, struct mac_addr* pDstMac_,
 		struct sockaddr_in* pSrc_, struct sockaddr_in* pDst_, 
 		char* pDataBuf_, int iDataLen_) {
 	uint32_t iSeq, iAck;																			// Both the seq- and ack-numbers
@@ -312,12 +287,8 @@ void create_raw_datagram(char* pOutPacket_, int* pOutPacketLen_, int iType_,
 	char* pDatagram = calloc(DATAGRAM_LEN, sizeof(char));
 
 	// Required structs for the IP- and TCP-header.
-	struct ethhdr* ethh = (struct ethhdr*)pDatagram;
-	struct iphdr* iph = (struct iphdr*)pDatagram + sizeof(struct ethhdr);
-	struct tcphdr* tcph = (struct tcphdr*)(pDatagram + sizeof(struct ethhdr) + sizeof(struct iphdr));
-
-	// Configure the Ethernet-header.
-	setup_eth_hdr(ethh, pSrcMac_, pDstMac_);	
+	struct iphdr* iph = (struct iphdr*)(pDatagram);
+	struct tcphdr* tcph = (struct tcphdr*)(pDatagram + sizeof(struct iphdr));
 
 	// Configure the IP-header.
 	setup_ip_hdr(iph, pSrc_, pDst_, iPayloadLen);
@@ -364,15 +335,17 @@ void create_raw_datagram(char* pOutPacket_, int* pOutPacketLen_, int iType_,
 			// Set datagram-flags.
 			tcph->syn = 1;
 
+			int iIPOff = sizeof(struct ethhdr);
+
 			// TCP options are only set in the SYN packet.
 			// Set the Maximum Segment Size(MMS).
-			pDatagram[40] = 0x02;
-			pDatagram[41] = 0x04;
+			pDatagram[iIPOff + 40] = 0x02;
+			pDatagram[iIPOff + 41] = 0x04;
 			int16_t mss = htons(48);
-			memcpy(pDatagram + 42, &mss, sizeof(int16_t));
+			memcpy(pDatagram + iIPOff + 42, &mss, sizeof(int16_t));
 			// Enable SACK.
-			pDatagram[44] = 0x04;
-			pDatagram[45] = 0x02;
+			pDatagram[iIPOff + 44] = 0x04;
+			pDatagram[iIPOff + 45] = 0x02;
 			break;
 
 		case(FIN_PACKET):
@@ -388,12 +361,16 @@ void create_raw_datagram(char* pOutPacket_, int* pOutPacketLen_, int iType_,
 			break;
 	}
 
+	printf("BUILD-LEN: %d\n", iph->tot_len);
+
 	// Calculate the checksum for both the IP- and TCP-header.
 	tcph->check = in_cksum_tcp(tcph, pSrc_, pDst_, iPayloadLen);
 	iph->check = in_cksum((char*)pDatagram, iph->tot_len);
 
+	// Convert the length of IP-header to big endian.
+	// iph->tot_len = htons(iph->tot_len);
+
 	// Return the created datagram.
-	memset(pOutPacket_, 0, DATAGRAM_LEN);
 	memcpy(pOutPacket_, pDatagram, DATAGRAM_LEN);
 	*pOutPacketLen_ = iph->tot_len;
 }  // create_raw_datagram
@@ -401,18 +378,19 @@ void create_raw_datagram(char* pOutPacket_, int* pOutPacketLen_, int iType_,
 /**
  * 
  */
-void strip_raw_packet(char* pPckBuf_, int iPckLen_, struct iphdr* pIPHdr_,  
-		struct tcphdr* pTCPHdr_, char* pPayload_, int* iPayloadLen_) {
+void strip_raw_packet(char* pPckBuf_, int iPckLen_,
+		struct iphdr* pIPHdr_, struct tcphdr* pTCPHdr_, char* pPayload_, int* iPayloadLen_) {
 
 	short iIPHdrLen;
 	int iTCPHdrLen;
 
 	// Remove the IP-header, and write it to the header-struct.
-	iIPHdrLen = strip_ip_hdr(pIPHdr_, pPckBuf_, iPckLen_);
+	iIPHdrLen = strip_ip_hdr(pIPHdr_, (pPckBuf_), (iPckLen_));
 
 	if(pTCPHdr_ != NULL) {
 		// Remove the TCP-header, and write it to the header-struct.
-		iTCPHdrLen = strip_tcp_hdr(pTCPHdr_, (pPckBuf_ + iIPHdrLen), (iPckLen_ - iIPHdrLen));
+		iTCPHdrLen = strip_tcp_hdr(pTCPHdr_, (pPckBuf_ + iIPHdrLen), 
+				(iPckLen_ - iIPHdrLen));
 		
 		if(pPayload_ != NULL) {
 			// Get the length of the payload contained in the datagram.

@@ -8,5 +8,7 @@
 
 // ==== DEFINE PROTOTYPES ====
 void hexDump(void*, int);
+void dump_packet(char*, int);
+void show_interfaces();
 
 #endif

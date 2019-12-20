@@ -15,10 +15,10 @@ You can simply drop this rule, by running the following command:
 $ sudo iptables -F
 
 To compile the script just run:
-$ make
+$ bash ./build.sh
 
 To use the tool, use the following command:
-$ sudo ./rawtcp <Src-IP> <Src-Port> <Dest-IP> <Dest-Port>
+$ sudo ./bin/rawtcp <Src-IP> <Src-Port> <Dest-IP> <Dest-Port>
 
 Note that a used port on the client-side is blocked for a short
 amount of time. Therefore you have to change the port after every use,

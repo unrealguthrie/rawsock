@@ -2,7 +2,7 @@ This script will try to create a TCP-handshake with the specified
 maschine and then send data using the established connection. 
 Because the application is using raw sockets, the TCP-header and 
 IP-header have to be added by the script as well. Note that this 
-socket will wait for the client to close the connection. 
+socket will wait for the other client to close the connection. 
 As the kernel is usually keeping track of sockets and ports, it 
 will interrupt the attempt of creating a TCP-connection by sending 
 RST-packets to the other machine. Therefore we have to execute some

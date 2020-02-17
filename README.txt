@@ -4,9 +4,9 @@ Because the application is using raw sockets, the TCP-header and
 IP-header have to be added by the script as well. Note that this 
 socket will wait for the client to close the connection. 
 As the kernel is usually keeping track of sockets and ports, it 
-will interrupt the attempt of creating a TCP-connection, by sending 
-RST-packets to the other machine. Therefore, the kernel has to be 
-prevented from doing so.
+will interrupt the attempt of creating a TCP-connection by sending 
+RST-packets to the other machine. Therefore we have to execute some
+commands to stop the kernel from doing so.
 
 Prevent the kernel from sending RST-packets:
 $ sudo iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP

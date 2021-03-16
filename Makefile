@@ -35,7 +35,7 @@ OBJECTS  := $(SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 rm       = rm -f
 
 
-$(BINDIR)/$(TARGET): $(OBJECTS)
+$(BINDIR)/$(TARGET): $(OBJECTS) dirs
 	@$(LINKER) $(OBJECTS) $(LFLAGS) -o $@
 	@echo "Linking complete!"
 
@@ -52,3 +52,8 @@ clean:
 remove: clean
 	@$(rm) $(BINDIR)/$(TARGET)
 	@echo "Executable removed!"
+
+.PHONY: dirs
+dirs:
+	mkdir -p obj
+	mkdir -p bin

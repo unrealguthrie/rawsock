@@ -1,3 +1,7 @@
+#include "basic_utils.h"
+
+#include "packet.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,22 +16,12 @@
 #include <sys/ioctl.h>
 #include <net/if.h>
 
-#include "bsc_ext.h"
-#include "packet.h"
 
-/*
- * Dump a chunk of data into the terminal. Each character is display
- * as a hex-number and as a readable ASCII-character. Invalid characters
- * are replaced by dots.
- *
- * @buf: The adress of the buffer to display
- * @len: The amount of bytes to display starting from the specified address
- */
 void hexDump(void *buf, int len)
 {
-    int i;
-    unsigned char secbuf[17];
-    unsigned char *ptr = (unsigned char *)buf;
+	int i;
+	unsigned char secbuf[17];
+	unsigned char *ptr = (unsigned char *)buf;
 	struct winsize w;
 	int colnum;
 
@@ -35,51 +29,45 @@ void hexDump(void *buf, int len)
 	ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
 	colnum = (w.ws_col < 80) ? (14) : (DUMP_LEN);	
 
-    /* Process every byte in the data */
-    for (i = 0; i < len; i++) {
-        /* Multiple of DUMP_LEN means new line (with line offset) */
-        if ((i % colnum) == 0) {
-            /* Just don't print ASCII for the zeroth line */
-            if (i != 0) {
-                printf(" | %s\n", secbuf);
-            }
+	/* Process every byte in the data */
+	for (i = 0; i < len; i++) {
+		/* Multiple of DUMP_LEN means new line (with line offset) */
+		if ((i % colnum) == 0) {
+			/* Just don't print ASCII for the zeroth line */
+			if (i != 0) {
+				printf(" | %s\n", secbuf);
+			}
 
-            /* Output the offset */
-            printf("> %03x: ", i);
-        }
+			/* Output the offset */
+			printf("> %03x: ", i);
+		}
 
-        /* Now the hex code for the specific character */
-        printf(" %02x", ptr[i]);
+		/* Now the hex code for the specific character */
+		printf(" %02x", ptr[i]);
 
-        /* And store a printable ASCII character for later */
-        /* Replace invalid ACII characters with dots */
-        if ((ptr[i] < 0x20) || (ptr[i] > 0x7e)) {
-            secbuf[i % colnum] = '.';
-        } else {
-            secbuf[i % colnum] = ptr[i];
-        }
+		/* And store a printable ASCII character for later */
+		/* Replace invalid ACII characters with dots */
+		if ((ptr[i] < 0x20) || (ptr[i] > 0x7e)) {
+			secbuf[i % colnum] = '.';
+		} else {
+			secbuf[i % colnum] = ptr[i];
+		}
 
-        /* Add the null-byte at the end of the buffer */
-        secbuf[(i % colnum) + 1] = '\0';
-    }
+		/* Add the null-byte at the end of the buffer */
+		secbuf[(i % colnum) + 1] = '\0';
+	}
 
-    /* Pad out last line if not exactly DUMP_LEN characters */
-    while ((i % colnum) != 0) {
-        printf("   ");
-        i++;
-    }
+	/* Pad out last line if not exactly DUMP_LEN characters */
+	while ((i % colnum) != 0) {
+		printf("   ");
+		i++;
+	}
 
-    /* And print the final ASCII bit */
-    printf(" | %s\n", secbuf);
+	/* And print the final ASCII bit */
+	printf(" | %s\n", secbuf);
 }
 
-/*
- * A simple function to useful informations about a datagram,
- * into the terminal.
- *
- * @buf: The buffer containing the raw datagram
- * @len: The length of the packet-buffer in bytes
-*/
+
 void dump_packet(char *buf, int len)
 {
 	char pos = 0;
@@ -98,7 +86,7 @@ void dump_packet(char *buf, int len)
 	srcaddr = ip_hdr.saddr;
 	dstaddr = ip_hdr.daddr;
 
-	printf("[*]");
+	printf("[*] ");
 
 	/* Ouput the source-IP-address */
 	off = (unsigned char*)&srcaddr;

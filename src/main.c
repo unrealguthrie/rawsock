@@ -1,4 +1,4 @@
-/**
+/*
  * FILE: main.c
  * SEND DATA VIA TCP/IP USING RAW SOCKETS IN C
  * Julian Kennerknecht [Julian.kennerknecht@gmx.de]
@@ -29,45 +29,59 @@
 #include <sys/ioctl.h>
 #include <net/if.h>
 
-#include "bsc_ext.h"
+#include "basic_utils.h"
 #include "packet.h"
 
 /* Recevive data and write to buffer */
 int receive_packet(int sockfd, char *buf, size_t len, struct sockaddr_in *dst);
 
+
 int main(int argc, char **argv) 
 {
 	int sockfd;
 	int sent;
-    int	one  = 1;
+	int one  = 1;
 	short sSendPacket = 0;
-	
-	/* The IP-addresses of both maschines in the connections */
+
+	/*
+	 * The IP-addresses of both maschines in the connections.
+	 */
 	struct sockaddr_in srcaddr;
 	struct sockaddr_in dstaddr;
-	
-	/* The buffer containing the raw datagram, both when it is */
-	/* received and send. */
-	char* pckbuf;
+
+	/* 
+	 * The buffer containing the raw datagram, both when it is received and
+	 * send.
+	 */
+	char *pckbuf = NULL;
 	int pckbuflen;
 
-	/* The buffer filled with the information to create the packet. */
-	/* The buffer will be filled like that: Seq + Ack [ + Payload ] */
-	/* So by default without the payload, it is 8 bytes long. */
-	char* databuf;
+	/*
+	 * The buffer filled with the information to create the packet.
+	 * The buffer will be filled like that: Seq + Ack [ + Payload ]
+	 * So by default without the payload, it is 8 bytes long.
+	 */
+	char *databuf = NULL;
 	int databuflen = 0;
 
-	/* Both numbers used to identify the send packets */
+	/*
+	 * Both numbers used to identify the send packets.
+	 */
 	uint32_t seqnum;
 	uint32_t acknum;
 
-	/* The payload contained in the packet */
-	char* pld;
+	/*
+	 * The payload contained in the packet.
+	 */
+	char *pld = NULL;
 	int pldlen;
 
-	/* Buffers used when taking apart the received datagrams */
+	/*
+	 * Buffers used when taking apart the received datagrams.
+	 */
 	struct iphdr ip_hdr;
 	struct tcphdr tcp_hdr;
+
 
 	/* Check if all necessary parameters have been set by the user */
 	if (argc < 5) {
@@ -76,13 +90,20 @@ int main(int argc, char **argv)
 	}
 
 	/* Reserve memory for the datagram */
-	pckbuf = calloc(DATAGRAM_LEN, sizeof(char));
+	if(!(pckbuf = calloc(DATAGRAM_LEN, sizeof(char))))
+		goto err_free;
 
 	/* Initialize the data-buffer */
-	databuf = malloc(520);
+	if(!(databuf = malloc(520)))
+		goto err_free;
 
 	/* Set the payload intended to be send using the connection */
-	pld = malloc(512);
+	if(!(pld = malloc(512)))
+		goto err_free;
+
+	/*
+	 * Copy text to payload-buffer.
+	 */
 	strcpy(pld, "Data send.");
 	pldlen = (strlen(pld) / sizeof(char));
 
@@ -93,43 +114,43 @@ int main(int argc, char **argv)
 	printf("SETUP:\n");
 
 	/* Create a raw socket for communication and store socket-handler */
-	printf(" Create raw socket...");
+	printf("Create raw socket...");
 	sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
 	if (sockfd < 0) {
 		printf("failed.\n");
 		perror("ERROR:");
-		exit (1);
+		goto err_free;
 	}
 	printf("done.\n");
 
 	/* Configure the destination-IP-address */
-	printf(" Configure destination-ip...");
+	printf("Configure destination-ip...");
 	dstaddr.sin_family = AF_INET;
 	dstaddr.sin_port = htons(atoi(argv[4]));
 	if (inet_pton(AF_INET, argv[3], &dstaddr.sin_addr) != 1) {
 		printf("failed.\n");
 		perror("Dest-IP invalid:");
-		exit (1);
+		goto err_free;
 	}
 	printf("done.\n");
 
 	/* Configure the source-IP-address */
-	printf(" Configure source-ip...");
+	printf("Configure source-ip...");
 	srcaddr.sin_family = AF_INET;
 	srcaddr.sin_port = htons(atoi(argv[2]));
 	if (inet_pton(AF_INET, argv[1], &srcaddr.sin_addr) != 1) {
 		printf("failed.\n");
 		perror("Src-IP invalid:");
-		exit (1);
+		goto err_free;
 	}
 	printf("done.\n");
 
 	/* Tell the kernel that headers are included in the packet */
-	printf(" Configure socket...");
+	printf("Configure socket...");
 	if (setsockopt(sockfd, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
 		printf("failed.\n");
 		perror("ERROR:");
-		exit (1);
+		goto err_free;
 	}
 	printf("done.\n");
 
@@ -137,15 +158,17 @@ int main(int argc, char **argv)
 	printf("COMMUNICATION:\n");
 
 	/* =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= */
- 	/* THE TCP-HANDSHAKE                                             */
+	/* THE TCP-HANDSHAKE                                             */
 
 	/* Step 1: Send the SYN-packet */
 	memset(pckbuf, 0, DATAGRAM_LEN);
 	create_raw_datagram(pckbuf, &pckbuflen, SYN_PACKET, &srcaddr, &dstaddr, NULL, 0);
 	dump_packet(pckbuf, pckbuflen);
-	if ((sent = sendto(sockfd, pckbuf, pckbuflen, 0, (struct sockaddr*)&dstaddr, 
+	if((sent = sendto(sockfd, pckbuf, pckbuflen, 0, (struct sockaddr*)&dstaddr, 
 					sizeof(struct sockaddr))) < 0) {
 		printf("failed.\n");
+		perror("ERROR:");
+		goto err_free;
 	}
 
 	/* Step 2: Wait for the SYN-ACK-packet */
@@ -153,12 +176,13 @@ int main(int argc, char **argv)
 	dump_packet(pckbuf, pckbuflen);
 	if (pckbuflen <= 0) {
 		printf("failed.\n");
-		exit(1);
+		perror("ERROR:");
+		goto err_free;
 	}
 
 	/* Update seq-number and ack-number */
 	update_seq_and_ack(pckbuf, &seqnum, &acknum);
-	
+
 	/* Step 3: Send the ACK-packet, with updated numbers */
 	memset(pckbuf, 0, DATAGRAM_LEN);
 	gather_packet_data(databuf, &databuflen, seqnum, acknum, NULL, 0);
@@ -167,7 +191,8 @@ int main(int argc, char **argv)
 	if ((sent = sendto(sockfd, pckbuf, pckbuflen, 0, (struct sockaddr*)&dstaddr, 
 					sizeof(struct sockaddr))) < 0) {
 		printf("failed.\n");
-		exit(1);
+		perror("ERROR:");
+		goto err_free;
 	}
 	free(databuf);
 
@@ -181,7 +206,8 @@ int main(int argc, char **argv)
 	if ((sent = sendto(sockfd, pckbuf, pckbuflen, 0, (struct sockaddr*)&dstaddr, 
 					sizeof(struct sockaddr))) < 0) {
 		printf("send failed\n");
-		return(1);
+		perror("ERROR:");
+		goto err_free;
 	}
 
 
@@ -217,7 +243,7 @@ int main(int argc, char **argv)
 			free(databuf);
 
 			if ((sent = sendto(sockfd, pckbuf, pckbuflen, 0, (struct sockaddr*)&dstaddr, 
-						sizeof(struct sockaddr))) < 0) {
+							sizeof(struct sockaddr))) < 0) {
 				printf("send failed\n");
 			} 
 			else {
@@ -232,16 +258,29 @@ int main(int argc, char **argv)
 	printf("\n");
 
 	/* =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= */
-	/* CLEAN-UP THE SCRIPT                                           */
-	
+	/* CLEAN-UP THE PROGRAM                                          */
+
 	printf("CLEAN-UP:\n");
 
 	/* Close the socket */
-	printf(" Close socket...");
+	printf("Close socket...");
 	close(sockfd);
 	printf("done.\n");
 
-	return (0);
+	/* Free memory */
+	if(pckbuf) free(pckbuf);
+	if(databuf) free(databuf);
+	if(pld) free(pld);
+
+	return 0;
+
+err_free:
+	/* Free buffers */
+	if(pckbuf) free(pckbuf);
+	if(databuf) free(databuf);
+	if(pld) free(pld);
+
+	return -1;
 }
 
 /*
@@ -270,5 +309,5 @@ int receive_packet(int sockfd, char *buf, size_t len, struct sockaddr_in *dst)
 	} while (dst_port != dst->sin_port);
 
 	/* Return the amount of recieved bytes */
-	return (recvlen);
+	return recvlen;
 }
